@@ -5,25 +5,24 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+
 
 /* Part 1 - Step 1 and 2: Do your tricks here
  * Your goal must be to change the stack frame of caller (main function)
  * such that you get to the line after "r2 = *( (int *) 0 )"
  */
-void signal_handle(int signalno) {
-
+void signal_handler(int signalno) {
     printf("handling segmentation fault!\n");
-
+    signalno += 10;
+    int * ptr = &signalno; 
     /* Step 2: Handle segfault and change the stack*/
 }
 
 int main(int argc, char *argv[]) {
-
     int r2 = 0;
-
     /* Step 1: Register signal handler first*/
-
-
+    signal(SIGINT, signal_handler);
     r2 = *( (int *) 0 ); // This will generate segmentation fault
 
     r2 = r2 + 1 * 30;
