@@ -1,0 +1,13 @@
+Garrett Seo gks43
+Gloria Liu gl492
+
+stacks.c
+
+1. What are the contents of the stack? 
+The stack contains local variables, function parameters, and return addresses for subroutines called within the program. There is also a stack pointer that points to the top of the stack as well as a base pointer that points to the base of the stack frame. So, in this program, it contained the local variables of main as well as the local variables in signal_handle. Further, it contained the return address back to the instruction pointer of main when the signal_handle returned. 
+
+2. Where is the program counter, and how did you use GDB to locate the PC?
+When the program enters main, the stack frame has esp at address 0xffffd020 and the instruction pointer at the beginning of main. When the program enters the signal handler, the instruction pointer is still pointing to where it received the segmentation fault. In our program, this was on line 29 and at instruction 0x5655623c. When we invoke the signal_handle, we know that the instruction pointer to the return address is stored on the stack. I used gdb by printing the next 32 addresses after the esp and trying to locate which address contained the instruction pointer to the address 0x5655623c. 
+
+3. What were the changes to get the desired result?
+Then I looked at the address of the signalno that was passed to the signal_handle. I then took the difference from the address that contained the instruction pointer and the address of the signalno and added that to a new pointer. Since this pointer now points to the instruction pointer, I offset it to the next instruction in main to skip dereferencing the memory at 0. 
