@@ -11,3 +11,9 @@ When the program enters main, the stack frame has esp at address 0xffffd020 and 
 
 3. What were the changes to get the desired result?
 Then I looked at the address of the signalno that was passed to the signal_handle. I then took the difference from the address that contained the instruction pointer and the address of the signalno and added that to a new pointer. Since this pointer now points to the instruction pointer, I offset it to the next instruction in main to skip dereferencing the memory at 0. 
+
+bitops.c
+We implemented the bit operations by using various bit operations. 
+For the function get_top_bits, I used a binary right shift operator. To get the top bits, we would have to shift to the right the total number of bits minus the the top bits we want to extract, so that only the top bits are left.  
+For the function set_bit_at_index, I first found the right index of the array to use by dividing the index by 8 (number of bits in a char). Then I get the correct bit within that index by modding with 8. I create a mask by shifting 1 to the left by the correct offset, and then use the bitwise OR operator to set the bit of the correct entry in the bitmap array to 1.
+For the function get_bit_at_index, I find the right index of the array and the right bit offset for that char the same way as the previous function. Then I shift the char at the correct index to the right using the offset, so that the leftmost bit corresponds to the original bit I wanted to get. Then I mod with 2 to return that bit. 

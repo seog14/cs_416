@@ -32,10 +32,11 @@ static unsigned int get_top_bits(unsigned int value,  int num_bits)
 static void set_bit_at_index(char *bitmap, int index)
 {
     //Implement your code here	
-    int byteIndex = index / sizeof(char);
-    int offset = index % sizeof(char);
+    int byteIndex = index / 8;
+    int offset = index % 8;
     unsigned char mask = 1 << offset;
     bitmap[byteIndex] |= mask;
+    //printf("bitmap index %d", bitmap[byteIndex]);
     return;
 }
 
@@ -48,10 +49,10 @@ static int get_bit_at_index(char *bitmap, int index)
 {
     //Get to the location in the character bitmap array
     //Implement your code here
-    int byteIndex = index / sizeof(char);
-    int offset = index % sizeof(char);
-    unsigned char mask = 1 << offset;
-    return (bitmap[byteIndex] & mask);
+    int byteIndex = index / 8;
+    int offset = index % 8;
+    char correctChar = bitmap[byteIndex] >> offset;
+    return correctChar % 2;
 }
 
 
