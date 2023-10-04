@@ -1,5 +1,7 @@
 Garrett Seo gks43
 Gloria Liu gl492
+CS 416
+ilab1
 
 stacks.c
 

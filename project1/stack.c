@@ -1,6 +1,8 @@
 /*
 * Garrett Seo gks43
 * Gloria Liu gl492
+* 416
+* ilab1
 */
 #include <signal.h>
 #include <stdio.h>

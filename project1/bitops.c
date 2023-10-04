@@ -1,6 +1,8 @@
 /*
-* Add NetID and names of all project partners
-*
+* Garrett Seo gks43
+* Gloria Liu gl492
+* 416
+* ilab1
 */
 #include <stdio.h>
 #include <string.h>
