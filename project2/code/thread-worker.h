@@ -25,7 +25,7 @@
 #include <sys/time.h>
 #include <string.h>
 
-enum thread_status{running, exitted, alive};
+enum thread_status{running, exitted, ready};
 
 typedef uint worker_t;
 
@@ -49,8 +49,13 @@ typedef struct TCB {
 
 } tcb; 
 
+typedef struct deque{
+	node* head; 
+	node* tail; 
+} deque; 
+
 typedef struct node{
-	tcb thread_control_block; 
+	tcb * thread_control_block; 
 	struct node * next; 
 
 } node; 
@@ -74,7 +79,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr, void
     *(*function)(void*), void * arg);
 
 /* give CPU pocession to other user level worker threads voluntarily */
-int worker_yield();
+void worker_yield();
 
 /* terminate a thread */
 void worker_exit(void *value_ptr);
@@ -98,6 +103,12 @@ int worker_mutex_destroy(worker_mutex_t *mutex);
 
 /* Function to print global statistics. Do not modify this function.*/
 void print_app_stats(void);
+
+void enqueue(node * new_node); 
+
+node * dequeue(); 
+
+void handle(int signum);
 
 #ifdef USE_WORKERS
 #define pthread_t worker_t

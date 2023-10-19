@@ -17,10 +17,81 @@ long id_incrementer = 1;
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
 
+ucontext_t scheduler_context; 
+deque queue; 
 
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
                       void *(*function)(void*), void * arg) {
+
+	if (id_incrementer ==1){
+		//Initialize Double ended linked list 
+		queue.head = NULL;
+		queue.tail = NULL;
+		// Initialize main thread 
+		tcb * thread_control_block = malloc(sizeof(tcb)); 
+		thread_control_block->id = id_incrementer; 
+		id_incrementer++; 
+		void * main_stack=malloc(STACK_SIZE);
+		thread_control_block->stack=main_stack; 
+		thread_control_block->priority=0; 
+		thread_control_block->status = ready;
+		ucontext_t context; 
+		thread_control_block->context=context;
+
+		// Create and initialize main context 
+		if (getcontext(&(thread_control_block->context)) < 0){
+			perror("getcontext"); 
+			exit(1);
+		}
+		thread_control_block->context.uc_link=NULL; 
+		thread_control_block->context.uc_stack.ss_flags=0; 
+		thread_control_block->context.uc_stack.ss_sp=thread_control_block->stack; 
+		thread_control_block->context.uc_stack.ss_size=STACK_SIZE; 
+		makecontext(&(thread_control_block->context), &main_context, 0); 
+
+		node* main_node = malloc(sizeof(node)); 
+		main_node->thread_control_block = thread_control_block; 
+		main_node->next = NULL; 
+		enqueue(main_node); 
+
+		// Initialize Scheduler 
+		if (getcontext(&scheduler_context) < 0){
+			perror("getcontext"); 
+			exit(1);
+		}		
+		void * scheduler_stack=malloc(STACK_SIZE); 
+		scheduler_context.uc_link=NULL; 
+		scheduler_context.uc_stack.ss_flags=0; 
+		scheduler_context.uc_stack.ss_sp=scheduler_stack; 
+		scheduler_context.uc_stack.ss_size=STACK_SIZE; 
+
+		// Initialize Timer 
+		// Use sigaction to register signal handler
+		struct sigaction sa;
+		memset (&sa, 0, sizeof (sa));
+		sa.sa_handler = &handle;
+		sigaction (SIGPROF, &sa, NULL);
+
+		// Create timer struct
+		struct itimerval timer;
+
+		// Set up what the timer should reset to after the timer goes off
+		timer.it_interval.tv_usec = 0; 
+		timer.it_interval.tv_sec = 1;
+
+		// Set up the current timer to go off in 1 second
+		// Note: if both of the following values are zero
+		//       the timer will not be active, and the timer
+		//       will never go off even if you set the interval value
+		timer.it_value.tv_usec = 0;
+		timer.it_value.tv_sec = 0;
+
+		// Set the timer up (start the timer)
+		setitimer(ITIMER_PROF, &timer, NULL);
+
+ 
+	}
 
 	// Create tcb
 	tcb * thread_control_block = malloc(sizeof(tcb)); 
@@ -30,39 +101,33 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	void *stack=malloc(STACK_SIZE); 
 	thread_control_block->stack=stack; 
 	thread_control_block->priority=0; 
-	thread_control_block->status = alive;
+	thread_control_block->status = read;
 	ucontext_t context; 
 	thread_control_block->context=context;
 
 	// Create and initialize context 
 	if (getcontext(&(thread_control_block->context)) < 0){
 		perror("getcontext"); 
-		exit(1);
+		return 1; 
 	}
 	thread_control_block->context.uc_link=NULL; 
 	thread_control_block->context.uc_stack.ss_flags=0; 
 	thread_control_block->context.uc_stack.ss_sp=thread_control_block->stack; 
 	thread_control_block->context.uc_stack.ss_size=STACK_SIZE; 
-	makecontext(&(thread_control_block->context), function, )
+	makecontext(&(thread_control_block->context), function, 1, arg); 
 
-       // - create and initialize the context of this worker thread
-       // - allocate space of stack for this thread to run
-       // after everything is set, push this thread into run queue and 
-       // - make it ready for the execution.
+	// Push thread into queue
+	node * curr_thread = malloc(sizeof(node)); 
+	curr_thread->thread_control_block = thread_control_block; 
+	curr_thread->next = NULL; 
+	enqueue(curr_thread); 
 
-       // YOUR CODE HERE
-	
     return 0;
 };
 
 /* give CPU possession to other user-level worker threads voluntarily */
-int worker_yield() {
-	
-	// - change worker thread's state from Running to Ready
-	// - save context of this thread to its thread control block
-	// - switch from thread context to scheduler context
-
-	// YOUR CODE HERE
+void  worker_yield() {
+	swap_context(&(queue.head->thread_control_block->context), &scheduler_context);
 	
 	return 0;
 };
@@ -129,6 +194,11 @@ static void schedule() {
 	// - every time a timer interrupt occurs, your worker thread library 
 	// should be contexted switched from a thread context to this 
 	// schedule() function
+	node* current_node = dequeue(); 
+	current_node->thread_control_block->status = ready; 
+	enqueue(current_node);  
+	queue.head->thread_control_block->status = running; 
+	setcontext(&(queue.head->thread_control_block->context)); 
 
 	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ)
 
@@ -179,3 +249,39 @@ void print_app_stats(void) {
 
 // YOUR CODE HERE
 
+static void main_context(){
+	return; 
+}
+
+void enqueue(node* new_node){
+	if (queue.head == NULL){
+		queue.head = new_node; 
+		queue.tail = new_node; 
+	}
+	node * temp_node = queue.head; 
+	while(temp_node->next != NULL){
+		temp_node = temp_node->next; 
+	}
+	temp_node->next = new_node; 
+	queue.tail = new_node; 
+	return; 
+}
+
+node * dequeue(){
+	if(queue.tail == NULL){
+		return NULL; 
+	}
+	if(queue.tail == queue.head){
+		node * temp_node = queue.tail; 
+		queue.tail = NULL; 
+		queue.head = NULL; 
+		return temp_node; 
+	}
+	node * temp_node = queue.head; 
+	queue.head = queue.head->next; 
+	return temp_node; 
+}
+
+void handle(int signum){
+	swap_context(&(queue.head->thread_control_block->context), &scheduler_context);
+}
