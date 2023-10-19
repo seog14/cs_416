@@ -21,14 +21,14 @@ int main(){
 
 	// Set up what the timer should reset to after the timer goes off
 	timer.it_interval.tv_usec = 0; 
-	timer.it_interval.tv_sec = 0;
+	timer.it_interval.tv_sec = 1;
 
 	// Set up the current timer to go off in 1 second
 	// Note: if both of the following values are zero
 	//       the timer will not be active, and the timer
 	//       will never go off even if you set the interval value
 	timer.it_value.tv_usec = 0;
-	timer.it_value.tv_sec = 1;
+	timer.it_value.tv_sec = 0;
 
 	// Set the timer up (start the timer)
 	setitimer(ITIMER_PROF, &timer, NULL);

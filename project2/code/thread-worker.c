@@ -12,6 +12,7 @@ long tot_cntx_switches=0;
 double avg_turn_time=0;
 double avg_resp_time=0;
 
+long id_incrementer = 1; 
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
@@ -21,7 +22,29 @@ double avg_resp_time=0;
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
                       void *(*function)(void*), void * arg) {
 
-       // - create Thread Control Block (TCB)
+	// Create tcb
+	tcb * thread_control_block = malloc(sizeof(tcb)); 
+	*thread = id_incrementer; 
+	thread_control_block->id = *thread; 
+	id_incrementer++; 
+	void *stack=malloc(STACK_SIZE); 
+	thread_control_block->stack=stack; 
+	thread_control_block->priority=0; 
+	thread_control_block->status = alive;
+	ucontext_t context; 
+	thread_control_block->context=context;
+
+	// Create and initialize context 
+	if (getcontext(&(thread_control_block->context)) < 0){
+		perror("getcontext"); 
+		exit(1);
+	}
+	thread_control_block->context.uc_link=NULL; 
+	thread_control_block->context.uc_stack.ss_flags=0; 
+	thread_control_block->context.uc_stack.ss_sp=thread_control_block->stack; 
+	thread_control_block->context.uc_stack.ss_size=STACK_SIZE; 
+	makecontext(&(thread_control_block->context), function, )
+
        // - create and initialize the context of this worker thread
        // - allocate space of stack for this thread to run
        // after everything is set, push this thread into run queue and 
