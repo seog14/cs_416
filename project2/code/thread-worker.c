@@ -18,43 +18,13 @@ long id_incrementer = 1;
 // YOUR CODE HERE
 
 ucontext_t scheduler_context; 
-deque queue; 
+deque queue={NULL, NULL}; 
 
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
                       void *(*function)(void*), void * arg) {
 
-	if (id_incrementer ==1){
-		//Initialize Double ended linked list 
-		queue.head = NULL;
-		queue.tail = NULL;
-		// Initialize main thread 
-		tcb * thread_control_block = malloc(sizeof(tcb)); 
-		thread_control_block->id = id_incrementer; 
-		id_incrementer++; 
-		void * main_stack=malloc(STACK_SIZE);
-		thread_control_block->stack=main_stack; 
-		thread_control_block->priority=0; 
-		thread_control_block->status = ready;
-		ucontext_t context; 
-		thread_control_block->context=context;
-
-		// Create and initialize main context 
-		if (getcontext(&(thread_control_block->context)) < 0){
-			perror("getcontext"); 
-			exit(1);
-		}
-		thread_control_block->context.uc_link=NULL; 
-		thread_control_block->context.uc_stack.ss_flags=0; 
-		thread_control_block->context.uc_stack.ss_sp=thread_control_block->stack; 
-		thread_control_block->context.uc_stack.ss_size=STACK_SIZE; 
-		makecontext(&(thread_control_block->context), &main_context, 0); 
-
-		node* main_node = malloc(sizeof(node)); 
-		main_node->thread_control_block = thread_control_block; 
-		main_node->next = NULL; 
-		enqueue(main_node); 
-
+	if (queue.head == NULL){
 		// Initialize Scheduler 
 		if (getcontext(&scheduler_context) < 0){
 			perror("getcontext"); 
@@ -65,6 +35,60 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		scheduler_context.uc_stack.ss_flags=0; 
 		scheduler_context.uc_stack.ss_sp=scheduler_stack; 
 		scheduler_context.uc_stack.ss_size=STACK_SIZE; 
+		makecontext(&scheduler_context, &schedule, 0); 
+
+		// Create main thread control block 
+		tcb * main_control_block = malloc(sizeof(tcb)); 
+		main_control_block->id = id_incrementer; 
+		id_incrementer++; 
+		void * main_stack=malloc(STACK_SIZE);
+		main_control_block->stack=main_stack; 
+		main_control_block->priority=0; 
+		main_control_block->status = ready;
+
+		// Create and initialize main context 
+		if (getcontext(&(main_control_block->context)) < 0){
+			perror("getcontext"); 
+			exit(1);
+		}
+		main_control_block->context.uc_link=NULL; 
+		main_control_block->context.uc_stack.ss_flags=0; 
+		main_control_block->context.uc_stack.ss_sp=main_control_block->stack; 
+		main_control_block->context.uc_stack.ss_size=STACK_SIZE; 
+		makecontext(&(main_control_block->context), &main_context, 0); 
+
+		// Enqueue main into queue 
+		node* main_node = malloc(sizeof(node)); 
+		main_node->thread_control_block = main_control_block; 
+		main_node->next = NULL; 
+		enqueue(main_node); 
+
+		// Create tcb for thread 
+		tcb * thread_control_block = malloc(sizeof(tcb)); 
+		*thread = id_incrementer; 
+		thread_control_block->id = id_incrementer; 
+		id_incrementer++; 
+		void *stack=malloc(STACK_SIZE); 
+		thread_control_block->stack=stack; 
+		thread_control_block->priority=0; 
+		thread_control_block->status = ready;
+
+		// Create and initialize context 
+		if (getcontext(&(thread_control_block->context)) < 0){
+			perror("getcontext"); 
+			return 1; 
+		}
+		thread_control_block->context.uc_link=NULL; 
+		thread_control_block->context.uc_stack.ss_flags=0; 
+		thread_control_block->context.uc_stack.ss_sp=thread_control_block->stack; 
+		thread_control_block->context.uc_stack.ss_size=STACK_SIZE; 
+		makecontext(&(thread_control_block->context), (void (*) (void))function, 1, arg); 
+
+		// Enqueue thread context
+		node * curr_thread = malloc(sizeof(node)); 
+		curr_thread->thread_control_block = thread_control_block; 
+		curr_thread->next = NULL; 
+		enqueue(curr_thread); 
 
 		// Initialize Timer 
 		// Use sigaction to register signal handler
@@ -85,25 +109,20 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		//       the timer will not be active, and the timer
 		//       will never go off even if you set the interval value
 		timer.it_value.tv_usec = 0;
-		timer.it_value.tv_sec = 0;
-
+		timer.it_value.tv_sec = 1;
 		// Set the timer up (start the timer)
-		setitimer(ITIMER_PROF, &timer, NULL);
-
- 
+		setitimer(ITIMER_PROF, &timer, NULL); 
+		return 0; 
 	}
-
-	// Create tcb
+	// Create thread
 	tcb * thread_control_block = malloc(sizeof(tcb)); 
 	*thread = id_incrementer; 
-	thread_control_block->id = *thread; 
+	thread_control_block->id = id_incrementer; 
 	id_incrementer++; 
 	void *stack=malloc(STACK_SIZE); 
 	thread_control_block->stack=stack; 
 	thread_control_block->priority=0; 
-	thread_control_block->status = read;
-	ucontext_t context; 
-	thread_control_block->context=context;
+	thread_control_block->status = ready;
 
 	// Create and initialize context 
 	if (getcontext(&(thread_control_block->context)) < 0){
@@ -114,7 +133,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	thread_control_block->context.uc_stack.ss_flags=0; 
 	thread_control_block->context.uc_stack.ss_sp=thread_control_block->stack; 
 	thread_control_block->context.uc_stack.ss_size=STACK_SIZE; 
-	makecontext(&(thread_control_block->context), function, 1, arg); 
+	makecontext(&(thread_control_block->context), (void (*) (void))function, 1, arg); 
 
 	// Push thread into queue
 	node * curr_thread = malloc(sizeof(node)); 
@@ -127,26 +146,43 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 
 /* give CPU possession to other user-level worker threads voluntarily */
 void  worker_yield() {
-	swap_context(&(queue.head->thread_control_block->context), &scheduler_context);
+	swapcontext(&(queue.head->thread_control_block->context), &scheduler_context);
 	
-	return 0;
 };
 
 /* terminate a thread */
 void worker_exit(void *value_ptr) {
 	// - de-allocate any dynamic memory created when starting this thread
-
-	// YOUR CODE HERE
+	//free context stack
+	free(queue.head->thread_control_block->stack); 
+	queue.head->thread_control_block->status=exitted; 
+	worker_yield(); 
+	return;
 };
 
 
 /* Wait for thread termination */
 int worker_join(worker_t thread, void **value_ptr) {
-	
-	// - wait for a specific thread to terminate
-	// - de-allocate any dynamic memory created by the joining thread
-  
-	// YOUR CODE HERE
+	node * temp = queue.head; 
+	node * joining_thread_node = NULL; 
+	while(temp != NULL){
+		if(temp->thread_control_block->id ==thread){
+			joining_thread_node = temp; 
+			break; 
+		}
+		temp = temp->next; 
+	}
+	if (joining_thread_node == NULL){
+		perror("Invalid joining thread");
+		return 1; 
+	}
+	tcb * joining_thread = joining_thread_node->thread_control_block;
+	while(1){
+		if(joining_thread->status==exitted){
+			break;
+		}
+	}
+	pop(thread); 
 	return 0;
 };
 
@@ -189,16 +225,16 @@ int worker_mutex_destroy(worker_mutex_t *mutex) {
 	return 0;
 };
 
+static void main_context(){
+	return; 
+}
+
 /* scheduler */
 static void schedule() {
 	// - every time a timer interrupt occurs, your worker thread library 
 	// should be contexted switched from a thread context to this 
 	// schedule() function
-	node* current_node = dequeue(); 
-	current_node->thread_control_block->status = ready; 
-	enqueue(current_node);  
-	queue.head->thread_control_block->status = running; 
-	setcontext(&(queue.head->thread_control_block->context)); 
+
 
 	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ)
 
@@ -211,7 +247,21 @@ static void schedule() {
 
 // - schedule policy
 #ifndef MLFQ
-	// Choose PSJF
+	node* current_node = dequeue(); 
+	while(current_node->thread_control_block->status == exitted){
+		enqueue(current_node); 
+		current_node = dequeue(); 
+	}
+	current_node->thread_control_block->status = ready; 
+	enqueue(current_node);
+	node * temp; 
+	while(queue.head->thread_control_block->status == exitted){
+		temp = dequeue(); 
+		enqueue(temp); 
+	}
+	queue.head->thread_control_block->status = running; 
+	makecontext(&scheduler_context, &schedule, 0);
+	setcontext(&(queue.head->thread_control_block->context)); 
 #else 
 	// Choose MLFQ
 #endif
@@ -249,14 +299,12 @@ void print_app_stats(void) {
 
 // YOUR CODE HERE
 
-static void main_context(){
-	return; 
-}
 
 void enqueue(node* new_node){
 	if (queue.head == NULL){
 		queue.head = new_node; 
 		queue.tail = new_node; 
+		return;
 	}
 	node * temp_node = queue.head; 
 	while(temp_node->next != NULL){
@@ -268,7 +316,7 @@ void enqueue(node* new_node){
 }
 
 node * dequeue(){
-	if(queue.tail == NULL){
+	if(queue.head == NULL){
 		return NULL; 
 	}
 	if(queue.tail == queue.head){
@@ -279,9 +327,42 @@ node * dequeue(){
 	}
 	node * temp_node = queue.head; 
 	queue.head = queue.head->next; 
+	temp_node->next = NULL; 
 	return temp_node; 
 }
 
 void handle(int signum){
-	swap_context(&(queue.head->thread_control_block->context), &scheduler_context);
+	swapcontext(&(queue.head->thread_control_block->context), &scheduler_context);
+}
+
+void pop(worker_t thread){
+
+	node * temp = queue.head; 
+	node * selected_thread = NULL; 
+	while(temp!= NULL){
+		if(temp->thread_control_block->id==thread){
+			selected_thread = temp; 
+			break; 
+		}
+		temp = temp->next; 
+	}
+	if (selected_thread == NULL){
+		perror("Invalid joining thread");
+		exit(1); 
+	}
+	if (selected_thread == queue.head){
+		selected_thread = dequeue(); 
+		free(selected_thread->thread_control_block); 
+		free(selected_thread); 
+		return; 
+	}
+	node * after = selected_thread->next; 
+	node * before = queue.head; 
+	while(before->next!=selected_thread){
+		before = before->next; 
+	}
+	before->next = after; 
+	free(selected_thread->thread_control_block); 
+	free(selected_thread); 
+	return; 
 }

@@ -40,7 +40,6 @@ typedef struct TCB {
 
 	// YOUR CODE HERE
 	worker_t id;
-	int status; 
 	ucontext_t context; 
 	int priority; 
 	void* stack; 
@@ -48,17 +47,18 @@ typedef struct TCB {
 
 
 } tcb; 
+typedef struct node{
+	tcb * thread_control_block; 
+	struct node * next; 
+
+} node; 
 
 typedef struct deque{
 	node* head; 
 	node* tail; 
 } deque; 
 
-typedef struct node{
-	tcb * thread_control_block; 
-	struct node * next; 
 
-} node; 
 /* mutex struct definition */
 typedef struct worker_mutex_t {
 	/* add something here */
@@ -109,6 +109,11 @@ void enqueue(node * new_node);
 node * dequeue(); 
 
 void handle(int signum);
+
+void pop(worker_t thread);
+
+static void main_context(); 
+static void schedule(); 
 
 #ifdef USE_WORKERS
 #define pthread_t worker_t
