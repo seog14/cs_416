@@ -10,7 +10,7 @@
 #define _GNU_SOURCE
 
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_WORKERS macro */
-#define USE_WORKERS 1
+//#define USE_WORKERS 1
 
 #define STACK_SIZE SIGSTKSZ
 
@@ -107,6 +107,8 @@ void print_app_stats(void);
 void enqueue(node * new_node); 
 
 void enqueue_mutex(node* new_node, deque* q); 
+
+node * dequeue_mutex(deque* q); 
 node * dequeue(); 
 
 void handle(int signum);

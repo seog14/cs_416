@@ -190,18 +190,16 @@ int worker_join(worker_t thread, void **value_ptr) {
 /* initialize the mutex lock */
 int worker_mutex_init(worker_mutex_t *mutex, 
                           const pthread_mutexattr_t *mutexattr) {
-	worker_mutex_t curr_mutex; 
-	curr_mutex.id = mutex_id_incrementer; 
+	mutex->id = mutex_id_incrementer; 
 	deque q = {NULL, NULL};
-	curr_mutex.blocked_threads = &q; 
-	curr_mutex.available = 0; 
-	mutex = &curr_mutex;
+	mutex->blocked_threads = &q; 
+	mutex->available = 0; 
 	return 0;
 };
 
 /* aquire the mutex lock */
 int worker_mutex_lock(worker_mutex_t *mutex) {
-	if (__sync_lock_test_and_set(&(mutex->available), 1)){
+	if (__sync_lock_test_and_set(&(mutex->available), 1) == 0){
 		return 0; 
 	}
 	else{
@@ -217,11 +215,17 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
         // context switch to the scheduler thread
 
         // YOUR CODE HERE
-        return 0;
+    return 0;
 };
 
 /* release the mutex lock */
 int worker_mutex_unlock(worker_mutex_t *mutex) {
+	__sync_lock_release(&(mutex->available));
+	node * temp; 
+	while(mutex->blocked_threads->head != NULL){
+		temp = dequeue_mutex(mutex->blocked_threads); 
+		enqueue(temp); 
+	}
 	// - release mutex and make it available again. 
 	// - put threads in block list to run queue 
 	// so that they could compete for mutex later.
@@ -234,7 +238,6 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 /* destroy the mutex */
 int worker_mutex_destroy(worker_mutex_t *mutex) {
 	// - de-allocate dynamic memory created in worker_mutex_init
-
 	return 0;
 };
 
@@ -360,6 +363,22 @@ void enqueue(node* new_node){
 	temp_node->next = new_node; 
 	queue.tail = new_node; 
 	return; 
+}
+
+node * dequeue_mutex(deque* q){
+	if(q->head == NULL){
+		return NULL; 
+	}
+	if(q->head == q->tail){
+		node * temp_node = q->tail; 
+		q->tail = NULL; 
+		q->head = NULL; 
+		return temp_node; 
+	}
+	node * temp_node = q->head; 
+	q->head = q->head->next; 
+	temp_node->next = NULL; 
+	return temp_node; 	
 }
 
 node * dequeue(){
