@@ -12,7 +12,8 @@ long tot_cntx_switches=0;
 double avg_turn_time=0;
 double avg_resp_time=0;
 
-long id_incrementer = 1; 
+long id_incrementer = 1;
+long mutex_id_incrementer = 1;  
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
@@ -189,14 +190,26 @@ int worker_join(worker_t thread, void **value_ptr) {
 /* initialize the mutex lock */
 int worker_mutex_init(worker_mutex_t *mutex, 
                           const pthread_mutexattr_t *mutexattr) {
-	//- initialize data structures for this mutex
-
-	// YOUR CODE HERE
+	worker_mutex_t curr_mutex; 
+	curr_mutex.id = mutex_id_incrementer; 
+	deque q = {NULL, NULL};
+	curr_mutex.blocked_threads = &q; 
+	curr_mutex.available = 0; 
+	mutex = &curr_mutex;
 	return 0;
 };
 
 /* aquire the mutex lock */
 int worker_mutex_lock(worker_mutex_t *mutex) {
+	if (__sync_lock_test_and_set(&(mutex->available), 1)){
+		return 0; 
+	}
+	else{
+		node * current_node = queue.head; 
+		current_node->thread_control_block->status == blocked; 
+		enqueue_mutex(current_node, mutex->blocked_threads); 
+		swapcontext(&(queue.head->thread_control_block->context), &scheduler_context);
+	}
 
         // - use the built-in test-and-set atomic function to test the mutex
         // - if the mutex is acquired successfully, enter the critical section
@@ -247,17 +260,37 @@ static void schedule() {
 
 // - schedule policy
 #ifndef MLFQ
-	node* current_node = dequeue(); 
-	while(current_node->thread_control_block->status == exitted){
+	if (queue.head->thread_control_block->status == running){
+		node * current_node = dequeue(); 
+		current_node->thread_control_block->status = ready; 
 		enqueue(current_node); 
-		current_node = dequeue(); 
+		node * temp; 
+		while(queue.head->thread_control_block->status == exitted || queue.head->thread_control_block->status == blocked){
+			if (queue.head->thread_control_block->status == exitted){
+				temp = dequeue(); 
+				enqueue(temp); 
+			}
+			else{
+				temp = dequeue(); 
+			}
+		}	
+		queue.head->thread_control_block->status = running; 
+		makecontext(&scheduler_context, &schedule, 0);
+		setcontext(&(queue.head->thread_control_block->context)); 	
 	}
-	current_node->thread_control_block->status = ready; 
-	enqueue(current_node);
-	node * temp; 
-	while(queue.head->thread_control_block->status == exitted){
-		temp = dequeue(); 
-		enqueue(temp); 
+	if(queue.head->thread_control_block->status == ready){
+		queue.head->thread_control_block->status = running; 
+		makecontext(&scheduler_context, &schedule, 0);
+		setcontext(&(queue.head->thread_control_block->context)); 
+	}
+	while(queue.head->thread_control_block->status == blocked || queue.head->thread_control_block->status == exitted){
+		if (queue.head->thread_control_block->status == blocked){
+			dequeue();  
+		}
+		else{
+			node * current_node = dequeue(); 
+			enqueue(current_node); 
+		}
 	}
 	queue.head->thread_control_block->status = running; 
 	makecontext(&scheduler_context, &schedule, 0);
@@ -299,6 +332,20 @@ void print_app_stats(void) {
 
 // YOUR CODE HERE
 
+void enqueue_mutex(node* new_node, deque* q){
+	if (q->head == NULL){
+		q->head = new_node; 
+		q->tail = new_node; 
+		return;
+	}
+	node * temp_node = q->head; 
+	while(temp_node->next != NULL){
+		temp_node = temp_node->next; 
+	}
+	temp_node->next = new_node; 
+	q->tail = new_node; 
+	return; 	
+}
 
 void enqueue(node* new_node){
 	if (queue.head == NULL){

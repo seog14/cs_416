@@ -25,7 +25,7 @@
 #include <sys/time.h>
 #include <string.h>
 
-enum thread_status{running, exitted, ready};
+enum thread_status{running, exitted, ready, blocked};
 
 typedef uint worker_t;
 
@@ -61,9 +61,9 @@ typedef struct deque{
 
 /* mutex struct definition */
 typedef struct worker_mutex_t {
-	/* add something here */
-
-	// YOUR CODE HERE
+	int id; 
+	deque * blocked_threads;
+	int available; 
 } worker_mutex_t;
 
 /* define your data structures here: */
@@ -106,6 +106,7 @@ void print_app_stats(void);
 
 void enqueue(node * new_node); 
 
+void enqueue_mutex(node* new_node, deque* q); 
 node * dequeue(); 
 
 void handle(int signum);

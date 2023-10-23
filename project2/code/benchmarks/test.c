@@ -43,8 +43,13 @@ int main(int argc, char **argv) {
 	pthread_create(&thread1, NULL, &increment, counter_1); 
 	pthread_create(&thread2, NULL, &increment, counter_2); 
 	pthread_create(&thread3, NULL, &increment, counter_2); 
+	printf("after create\n");
 	pthread_join(thread1, NULL); 
+	printf("join thread1\n");
 	pthread_join(thread2, NULL);
+	printf("join thread2\n");
+	pthread_join(thread3, NULL);
+	printf("join thread3\n");
 	printf("sum1: %d", sum1);
 	printf("sum2: %d", sum2);
 	return 0;
