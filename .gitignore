@@ -6,3 +6,7 @@
 
 # Unignore all dirs
 !*/
+
+# ignore .o  and .afiles 
+*.o
+*.a
