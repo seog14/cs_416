@@ -14,6 +14,10 @@
 
 #define STACK_SIZE SIGSTKSZ
 
+#define TOTAL_QUEUES 4
+
+#define QUANTUM 100
+
 /* include lib header files that you need here: */
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -43,8 +47,8 @@ typedef struct TCB {
 	ucontext_t context; 
 	int priority; 
 	void* stack; 
-	enum thread_status status; 
-
+	enum thread_status status;
+	int elapsed;
 
 } tcb; 
 typedef struct node{
@@ -104,7 +108,8 @@ int worker_mutex_destroy(worker_mutex_t *mutex);
 /* Function to print global statistics. Do not modify this function.*/
 void print_app_stats(void);
 
-void enqueue(node * new_node); 
+void enqueue(node * new_node);
+void enqueueExit(node *new_node); 
 
 void enqueue_mutex(node* new_node, deque* q); 
 
