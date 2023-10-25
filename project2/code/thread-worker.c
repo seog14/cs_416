@@ -12,6 +12,8 @@ long tot_cntx_switches=0;
 double avg_turn_time=0;
 double avg_resp_time=0;
 
+double total_time_ran = 0; 
+double total_response_time = 0; 
 long id_incrementer = 1;
 long mutex_id_incrementer = 1;  
 
@@ -28,6 +30,7 @@ deque buffer = {NULL, NULL};
 struct itimerval timer; 
 //node *currentlyRunningMLFQ;
 int timers;
+double num_threads = 0; 
 
 #ifndef MLFQ
 	int useMLFQ = 0;
@@ -70,6 +73,8 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		main_control_block->priorityPSJF=0; 
 		main_control_block->elapsed = 0;
 		main_control_block->status = ready;
+		main_control_block->response_flag=0;
+		main_control_block->start_time = clock(); 
 
 		// Create and initialize main context 
 		if (getcontext(&(main_control_block->context)) < 0){
@@ -103,6 +108,8 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		thread_control_block->priorityPSJF=0; 
 		thread_control_block->elapsed=0; 
 		thread_control_block->status = ready;
+		thread_control_block->response_flag=0;
+		thread_control_block->start_time = clock(); 
 
 		// Create and initialize context 
 		if (getcontext(&(thread_control_block->context)) < 0){
@@ -119,11 +126,8 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		node * curr_thread = malloc(sizeof(node)); 
 		curr_thread->thread_control_block = thread_control_block; 
 		curr_thread->next = NULL;
-		if (useMLFQ == 1){
-			enqueueMLFQ(curr_thread);
-		} else {
-			enqueuePSJF(curr_thread);
-		} 
+		enqueueMLFQ(curr_thread); 
+		num_threads++; 
 
 		// Initialize Timer 
 		// Use sigaction to register signal handler
@@ -152,6 +156,8 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	thread_control_block->priorityPSJF=0; 
 	thread_control_block->elapsed=0; 
 	thread_control_block->status = ready;
+	thread_control_block->response_flag=0;
+	thread_control_block->start_time=clock(); 
 
 	// Create and initialize context 
 	if (getcontext(&(thread_control_block->context)) < 0){
@@ -168,17 +174,15 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	node * curr_thread = malloc(sizeof(node)); 
 	curr_thread->thread_control_block = thread_control_block; 
 	curr_thread->next = NULL; 
-	if (useMLFQ == 1){
-		enqueueMLFQ(curr_thread);
-	} else {
-		enqueuePSJF(curr_thread);
-	}
+	enqueueMLFQ(curr_thread); 
+	num_threads++; 
 
     return 0;
 };
 
 /* give CPU possession to other user-level worker threads voluntarily */
 void  worker_yield() {
+	tot_cntx_switches++;
 	swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
 	// timer first goes here then to scheduler
 };
@@ -187,9 +191,12 @@ void  worker_yield() {
 void worker_exit(void *value_ptr) {
 	// - de-allocate any dynamic memory created when starting this thread
 	//free context stack
+	clock_t end_time = clock(); 
 	free(currentlyRunningNode->thread_control_block->stack); 
 	currentlyRunningNode->thread_control_block->status=exitted;
-	
+	total_time_ran += (double)(end_time - currentlyRunningNode->thread_control_block->start_time) * 1000/CLOCKS_PER_SEC;
+	avg_turn_time = total_time_ran/num_threads; 
+	tot_cntx_switches++;
 	swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
 	return;
 };
@@ -284,6 +291,7 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 			node * current_node = dequeueMLFQ(); 
 			current_node->thread_control_block->status = blocked; 
 			enqueue_mutex(current_node, mutex->blocked_threads);
+			tot_cntx_switches++;
 			swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
 		}
 		else {
@@ -291,6 +299,7 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 			dequeuePSJF(current_node);
 			current_node->thread_control_block->status = blocked; 
 			enqueue_mutex(current_node, mutex->blocked_threads);
+			tot_cntx_switches++;
 			swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
 		}
 	}
@@ -461,6 +470,13 @@ static void sched_mlfq() {
 	timer.it_value.tv_usec = QUANTUM;
 	timer.it_value.tv_sec = 0; 
 	setitimer(ITIMER_PROF, &timer, NULL); 
+	tot_cntx_switches++; 
+	if(currentlyRunningNode->thread_control_block->response_flag == 0){
+		currentlyRunningNode->thread_control_block->response_flag = 1; 
+		clock_t end_time = clock(); 
+		total_response_time += (double)(end_time - currentlyRunningNode->thread_control_block->start_time) * 1000.0/CLOCKS_PER_SEC;
+		avg_resp_time = total_response_time/num_threads; 
+	}
 	setcontext(&(currentlyRunningNode->thread_control_block->context)); 
 }
 

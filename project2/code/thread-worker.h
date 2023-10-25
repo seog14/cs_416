@@ -10,13 +10,13 @@
 #define _GNU_SOURCE
 
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_WORKERS macro */
-//#define USE_WORKERS 1
+#define USE_WORKERS 1
 
 #define STACK_SIZE SIGSTKSZ
 
 #define TOTAL_QUEUES 4
 
-#define QUANTUM 500000
+#define QUANTUM 250000
 
 #define S QUANTUM * 75
 
@@ -30,6 +30,7 @@
 #include <signal.h>
 #include <sys/time.h>
 #include <string.h>
+#include<time.h>
 
 enum thread_status{running, exitted, ready, blocked};
 
@@ -52,6 +53,8 @@ typedef struct TCB {
 	void* stack; 
 	enum thread_status status;
 	int elapsed;
+	int response_flag;
+	clock_t start_time; 
 
 } tcb; 
 typedef struct node{
