@@ -17,11 +17,14 @@ long mutex_id_incrementer = 1;
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
-
+long time_ran = 0; 
 ucontext_t scheduler_context; 
 deque queue={NULL, NULL};
 deque *MLFQList[TOTAL_QUEUES];
 deque exitQueue = {NULL, NULL};
+node *currentlyRunningNode = NULL;
+deque buffer = {NULL, NULL}; 
+struct itimerval timer; 
 //node *currentlyRunningMLFQ;
 int timers;
 
@@ -29,7 +32,7 @@ int timers;
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
                       void *(*function)(void*), void * arg) {
 
-	if (queue.head == NULL){
+	if (id_incrementer == 1){
 		// Initialize Scheduler 
 		if (getcontext(&scheduler_context) < 0){
 			perror("getcontext"); 
@@ -41,6 +44,14 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		scheduler_context.uc_stack.ss_sp=scheduler_stack; 
 		scheduler_context.uc_stack.ss_size=STACK_SIZE; 
 		makecontext(&scheduler_context, &schedule, 0); 
+
+		int i;
+
+		for (i = 0; i < TOTAL_QUEUES; i++){
+			MLFQList[i] = malloc(sizeof(deque));
+			MLFQList[i]->head = NULL;
+			MLFQList[i]->tail = NULL;
+		}
 
 		// Create main thread control block 
 		tcb * main_control_block = malloc(sizeof(tcb)); 
@@ -77,7 +88,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		void *stack=malloc(STACK_SIZE); 
 		thread_control_block->stack=stack; 
 		thread_control_block->priority=0; 
-		thread_control_block->elasped=0; 
+		thread_control_block->elapsed=0; 
 		thread_control_block->status = ready;
 
 		// Create and initialize context 
@@ -104,17 +115,9 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		sa.sa_handler = &handle;
 		sigaction (SIGPROF, &sa, NULL);
 
-		// Create timer struct
-		struct itimerval timer;
-
 		// Set up what the timer should reset to after the timer goes off
 		timer.it_interval.tv_usec = QUANTUM; 
 		timer.it_interval.tv_sec = 0;
-
-		// Set up the current timer to go off in 1 second
-		// Note: if both of the following values are zero
-		//       the timer will not be active, and the timer
-		//       will never go off even if you set the interval value
 		timer.it_value.tv_usec = QUANTUM;
 		timer.it_value.tv_sec = 0;
 		// Set the timer up (start the timer)
@@ -163,8 +166,11 @@ void worker_exit(void *value_ptr) {
 	// - de-allocate any dynamic memory created when starting this thread
 	//free context stack
 	free(currentlyRunningNode->thread_control_block->stack); 
+	if (currentlyRunningNode->thread_control_block->status == blocked){
+		printf("oh no\n");
+	}
 	currentlyRunningNode->thread_control_block->status=exitted;
-
+	
 	swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
 	return;
 };
@@ -175,26 +181,33 @@ int worker_join(worker_t thread, void **value_ptr) {
 	node * joining_thread_node = NULL;
 	int i;
 	int found = 0;
-	for (i = 0; i < TOTAL_QUEUES; i++){
-		deque *q = MLFQList[i];
-		node *cur = q->head;
-		if (cur != NULL){
-			while (cur != NULL) {
-				if (cur->thread_control_block->id == thread){
-					joining_thread_node = cur;
-					found = 1;
-					break;
+	//First search if thread has already been executed
+	if(found_in_exit_queue(thread)){
+		pop(thread); 
+		return 0; 
+	}
+	//Wait until thread exists in mlfq
+	while(1){
+		for (i = 0; i < TOTAL_QUEUES; i++){
+			deque *q = MLFQList[i];
+			node *cur = q->head;
+			if (cur != NULL){
+				while (cur != NULL) {
+					if (cur->thread_control_block->id == thread){
+						joining_thread_node = cur;
+						found = 1;
+						break;
+					}
+					cur = cur->next;
 				}
-				cur = cur->next;
+			}
+			if (found){
+				break;
 			}
 		}
-		if (found){
+		if(found){
 			break;
 		}
-	}
-	if (joining_thread_node == NULL){
-		perror("Invalid joining thread");
-		return 1; 
 	}
 	tcb * joining_thread = joining_thread_node->thread_control_block;
 	while(1){
@@ -210,20 +223,22 @@ int worker_join(worker_t thread, void **value_ptr) {
 int worker_mutex_init(worker_mutex_t *mutex, 
                           const pthread_mutexattr_t *mutexattr) {
 	mutex->id = mutex_id_incrementer; 
-	deque q = {NULL, NULL};
-	mutex->blocked_threads = &q; 
+	deque *q = malloc(sizeof(deque));
+	deque qe = {NULL, NULL}; 
+	*q = qe;
+	mutex->blocked_threads = q; 
 	mutex->available = 0; 
 	return 0;
 };
 
 /* aquire the mutex lock */
 int worker_mutex_lock(worker_mutex_t *mutex) {
-	if (__sync_lock_test_and_set(&(mutex->available), 1) == 0){
+	if (__sync_lock_test_and_set(&(mutex->available), currentlyRunningNode->thread_control_block->id) == 0){
 		return 0; 
 	}
 	else{
 		node * current_node = currentlyRunningNode; 
-		current_node->thread_control_block->status == blocked; 
+		current_node->thread_control_block->status = blocked; 
 		enqueue_mutex(current_node, mutex->blocked_threads); 
 		swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
 	}
@@ -240,6 +255,7 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 /* release the mutex lock */
 int worker_mutex_unlock(worker_mutex_t *mutex) {
 	__sync_lock_release(&(mutex->available));
+
 	node * temp; 
 	while(mutex->blocked_threads->head != NULL){
 		temp = dequeue_mutex(mutex->blocked_threads); 
@@ -256,6 +272,7 @@ int worker_mutex_unlock(worker_mutex_t *mutex) {
 
 /* destroy the mutex */
 int worker_mutex_destroy(worker_mutex_t *mutex) {
+	free(mutex->blocked_threads); 
 	// - de-allocate dynamic memory created in worker_mutex_init
 	return 0;
 };
@@ -282,42 +299,7 @@ static void schedule() {
 
 // - schedule policy
 #ifndef MLFQ
-	if (currentlyRunningNode->thread_control_block->status == running){
-		node * current_node = dequeue(); 
-		current_node->thread_control_block->status = ready; 
-		enqueue(current_node); 
-		node * temp; 
-		while(currentlyRunningNode->thread_control_block->status == exitted || currentlyRunningNode->thread_control_block->status == blocked){
-			if (currentlyRunningNode->thread_control_block->status == exitted){
-				temp = dequeue(); 
-				//TODO: Enqueue into exitted queue
-				enqueue(temp); 
-			}
-			else{
-				temp = dequeue();
-			}
-		}	
-		currentlyRunningNode->thread_control_block->status = running; 
-		makecontext(&scheduler_context, &schedule, 0);
-		setcontext(&(currentlyRunningNode->thread_control_block->context)); 	
-	}
-	if(currentlyRunningNode->thread_control_block->status == ready){
-		currentlyRunningNode->thread_control_block->status = running; 
-		makecontext(&scheduler_context, &schedule, 0);
-		setcontext(&(currentlyRunningNode->thread_control_block->context)); 
-	}
-	while(currentlyRunningNode->thread_control_block->status == blocked || currentlyRunningNode->thread_control_block->status == exitted){
-		if (currentlyRunningNode->thread_control_block->status == blocked){
-			dequeue();  
-		}
-		else{
-			node * current_node = dequeue(); 
-			enqueue(current_node); 
-		}
-	}
-	currentlyRunningNode->thread_control_block->status = running; 
-	makecontext(&scheduler_context, &schedule, 0);
-	setcontext(&(currentlyRunningNode->thread_control_block->context)); 
+	sched_mlfq(); 
 #else 
 	// Choose MLFQ
 	sched_mlfq();
@@ -336,56 +318,68 @@ static void sched_psjf() {
 
 /* Preemptive MLFQ scheduling algorithm */
 static void sched_mlfq() {
-	// - your own implementation of MLFQ
-	// (feel free to modify arguments and return types)
-
-	// YOUR CODE HERE
-	// 1) Remove blocked and exitted thread
-
+	printf("Current_running_context at sched: %d At priority: %d with status: %d\n", currentlyRunningNode->thread_control_block->id, currentlyRunningNode->thread_control_block->priority, currentlyRunningNode->thread_control_block->status);
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = 0; 
+	timer.it_value.tv_usec = 0;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL); 
 	if (currentlyRunningNode->thread_control_block->status == exitted){
 		node *tempNode = dequeueMLFQ();
 		enqueueExit(tempNode);
 	}
 	if (currentlyRunningNode -> thread_control_block->status == blocked){
-		dequeueMLFQ();
+		if (time_ran >= 2000){
+			time_ran = 0; 
+			node* tempNode = dequeueMLFQ(); 
+			tempNode->thread_control_block->priority = 0; 
+			tempNode = dequeueMLFQ(); 
+			while(tempNode != NULL){
+				node * node_to_enqueue = tempNode; 
+				node_to_enqueue->thread_control_block->priority = 0; 
+				enqueue_buffer(node_to_enqueue); 
+				tempNode = dequeueMLFQ(); 
+			}
+			tempNode = dequeue_buffer(); 
+			while(tempNode != NULL){
+				enqueueMLFQ(tempNode); 
+				tempNode = dequeue_buffer(); 
+			}
+		}
+		else
+			dequeueMLFQ();
 	}
-	// 2) Time and move prioriities for last node
+	else if(time_ran >= 2000){
+		time_ran = 0; 
+		node * tempNode = dequeueMLFQ(); 
+		while(tempNode != NULL){
+			node * node_to_enqueue = tempNode; 
+			node_to_enqueue->thread_control_block->priority = 0; 
+			enqueue_buffer(node_to_enqueue); 
+			tempNode = dequeueMLFQ(); 
+		}
+		tempNode = dequeue_buffer(); 
+		while(tempNode != NULL){
+			enqueueMLFQ(tempNode); 
+			tempNode = dequeue_buffer(); 
+		}
+
+	}
 	if (currentlyRunningNode->thread_control_block->status == running){
 		node *tempNode = dequeueMLFQ();
 		tempNode->thread_control_block->status = ready;
 		tempNode->thread_control_block->elapsed += QUANTUM;
 		changePriority(tempNode);
-		tempNode->thread_control_block
+		enqueueMLFQ(tempNode);
 	}
-	currentlyRunningNode->thread_contro
-	// 3) At certain time quantum - set all threads to priority 0
-	deque * q = MLFQList[level];
-	int i;
-	//for (i = 0; i)
-	if (q->head->thread_control_block->status == running){
-		node * current_node = dequeueMLFQ(); 
-		current_node->thread_control_block->status = ready;
-		/*
-		int priority = current_node->thread_control_block->priority;
-		if (priority < TOTAL_QUEUES - 1){
-			priority ++;
-		}
-		current_node->thread_control_block->priority = priority;
-		enqueueMLFQ(current_node, priority);*/
-		// highest active level of queue may change?
-		int newLevel = levelOfMLFQ();
-		deque * q2 = MLFQList[newLevel];
-		node * temp;
-		setMLFQRunningThread();
-		q2.head->thread_control_block->status = running; 
-		makecontext(&scheduler_context, &schedule, 0);
-		setcontext(&(q2.head->thread_control_block->context)); 	
-	}
-	if(q.head->thread_control_block->status == ready){
-		q.head->thread_control_block->status = running; 
-		makecontext(&scheduler_context, &schedule, 0);
-		setcontext(&(q.head->thread_control_block->context)); 
-	}
+	time_ran += QUANTUM; 
+	currentlyRunningNode->thread_control_block->status = running; 
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = QUANTUM; 
+	timer.it_value.tv_usec = QUANTUM;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL); 
+	setcontext(&(currentlyRunningNode->thread_control_block->context)); 
 }
 
 
@@ -481,26 +475,23 @@ void enqueueExit(node* new_node){
 	return; 
 }
 
-}
-
-int levelOfMLFQ(){
-	int i;
-	for (i = 0; i < TOTAL_QUEUES; i++) {
-		deque *q = MLFQList[i];
-		if(q.head == NULL){
-			continue; 
-		}
-		return i;
-	}
-	return NULL;
-}
 
 node * dequeueMLFQ(){
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = 0; 
+	timer.it_value.tv_usec = 0;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL); 
 	int level = currentlyRunningNode->thread_control_block->priority;
 	deque *q = MLFQList[level];
 	if (q->head == NULL){
-		perror("level of queue empty");
-		exit(1);
+		timer.it_interval.tv_sec = 0; 
+		timer.it_interval.tv_usec = QUANTUM; 
+		timer.it_value.tv_usec = QUANTUM;
+		timer.it_value.tv_sec = 0; 
+		setitimer(ITIMER_PROF, &timer, NULL); 
+		currentlyRunningNode = NULL; 
+		return NULL; 
 	}
 	node* tempNode = currentlyRunningNode;
 	if (q->tail == q->head){
@@ -511,40 +502,56 @@ node * dequeueMLFQ(){
 		q->head = q->head->next;
 	}
 	tempNode->next = NULL;
+	int i; 
 	for (i = 0; i < TOTAL_QUEUES; i++) {
 		deque *q = MLFQList[i];
 		if(q->head == NULL){
 			continue; 
 		} else {
 			currentlyRunningNode = q->head;
+			break; 
 		}
 	}
 	return tempNode;
 }
 
 void enqueueMLFQ(node* new_node){
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = 0; 
+	timer.it_value.tv_usec = 0;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL); 
+	if (currentlyRunningNode == NULL){
+		currentlyRunningNode = new_node; 
+		currentlyRunningNode->thread_control_block->status=running; 
+	}
 	deque *q = MLFQList[new_node->thread_control_block->priority];
-	if (q.head == NULL){
-		queue.head = new_node; 
-		queue.tail = new_node; 
+	if (q->head == NULL){
+		q->head = new_node; 
+		q->tail = new_node; 
+		timer.it_interval.tv_sec = 0; 
+		timer.it_interval.tv_usec = QUANTUM; 
+		timer.it_value.tv_usec = QUANTUM;
+		timer.it_value.tv_sec = 0; 
+		setitimer(ITIMER_PROF, &timer, NULL); 
 		return;
 	}
-	node * temp_node = q.head; 
+	node * temp_node = q->head; 
 	while(temp_node->next != NULL){
 		temp_node = temp_node->next; 
 	}
 	temp_node->next = new_node; 
-	q.tail = new_node; 
+	q->tail = new_node; 
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = QUANTUM; 
+	timer.it_value.tv_usec = QUANTUM;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL); 
 	return;
-}
-
-void removeExittedBlockedThreadsMLFQ(){
-
 }
 
 void handle(int signum){
 	worker_yield();
-	//swapcontext(&(queue.head->thread_control_block->context), &scheduler_context);
 }
 
 void pop(worker_t thread){
@@ -593,4 +600,45 @@ void changePriority(node * newNode){
 		return;
 	}
 	return;
+}
+
+void enqueue_buffer(node* new_node){
+	if (buffer.head == NULL){
+		buffer.head = new_node; 
+		buffer.tail = new_node; 
+		return;
+	}
+	node * temp_node = buffer.head; 
+	while(temp_node->next != NULL){
+		temp_node = temp_node->next; 
+	}
+	temp_node->next = new_node; 
+	buffer.tail = new_node; 
+	return; 
+}
+node* dequeue_buffer(){
+	if(buffer.head == NULL){
+		return NULL; 
+	}
+	if(buffer.tail == buffer.head){
+		node * temp_node = buffer.tail; 
+		buffer.tail = NULL; 
+		buffer.head = NULL; 
+		return temp_node; 
+	}
+	node * temp_node = buffer.head; 
+	buffer.head = buffer.head->next; 
+	temp_node->next = NULL; 
+	return temp_node; 
+} 
+
+int found_in_exit_queue(worker_t thread){
+	node* temp_node = exitQueue.head; 
+	while(temp_node != NULL){
+		if(temp_node->thread_control_block->id == thread){
+			return 1; 
+		}
+		temp_node = temp_node->next; 
+	}
+	return 0; 
 }

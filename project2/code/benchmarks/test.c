@@ -18,12 +18,13 @@ int sum1 = 0;
 int sum2 = 0; 
 pthread_t thread1;
 pthread_t thread2; 
-pthread_t thread3; 
+pthread_t thread3;
 
 void increment(void * arg){
+	printf("running increment\n");
 	int counter = * ((int *) arg);
 	for(int i = 0; i < counter; i++){
-		pthread_mutex_lock(&mutex);
+		pthread_mutex_lock(&mutex); 
 		sum1 +=1; 
 		pthread_mutex_unlock(&mutex);
 	}
@@ -32,29 +33,30 @@ void increment(void * arg){
 	return;
 }
 void decrement(void * arg){
+	printf("running decrement\n");
 	int counter = *((int *) arg); 
 	for(int i = 0; i < counter; i++)
+		pthread_mutex_lock(&mutex); 
 		sum1 -=1; 
+		pthread_mutex_unlock(&mutex);
 	
 	pthread_exit(NULL);
 	return;
 }
 int main(int argc, char **argv) {
-	int x = 100000000; 
-	int y = 100000000; 
+	int x = 1000; 
+	int y = 1000; 
 	counter_1 = &x; 
 	counter_2 = &y; 
 	pthread_mutex_init(&mutex, NULL);
 	pthread_create(&thread1, NULL, &increment, counter_1); 
-	pthread_create(&thread2, NULL, &increment, counter_2); 
-	pthread_create(&thread3, NULL, &increment, counter_2); 
+	pthread_create(&thread2, NULL, &decrement, counter_2); 
 	printf("after create\n");
 	pthread_join(thread1, NULL); 
 	printf("join thread1\n");
 	pthread_join(thread2, NULL);
 	printf("join thread2\n");
-	pthread_join(thread3, NULL);
-	printf("join thread3\n");
+	//pthread_join(thread3, NULL);
 	printf("sum1: %d", sum1);
 	printf("sum2: %d", sum2);
 	pthread_mutex_destroy(&mutex);
