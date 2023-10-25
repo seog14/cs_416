@@ -1,8 +1,8 @@
 // File:	thread-worker.c
 
-// List all group member's name: Garrett Seo, Gloria Liu
-// username of iLab: gks43, gl492
-// iLab Server: ilab 3, cs416f23-14
+// List all group member's name:
+// username of iLab:
+// iLab Server:
 
 #include "thread-worker.h"
 
@@ -256,8 +256,9 @@ int worker_join(worker_t thread, void **value_ptr) {
 				cur = cur->next;
 			}
 		}
+		tcb * joining_thread = joining_thread_node->thread_control_block;
 		while(1){
-			if(joining_thread_node->thread_control_block->status==exitted){
+			if(joining_thread->status==exitted){
 				break;
 			}
 		}
@@ -742,6 +743,11 @@ int found_in_exit_queue(worker_t thread){
 }
 
 void enqueuePSJF(node *new_node){
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = 0; 
+	timer.it_value.tv_usec = 0;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL); 
 	if (currentlyRunningNode == NULL){
 		currentlyRunningNode = new_node;
 		currentlyRunningNode->thread_control_block->status = running;
@@ -757,6 +763,11 @@ void enqueuePSJF(node *new_node){
 	}
 	temp_node->next = new_node; 
 	PSJFqueue.tail = new_node; 
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = QUANTUM; 
+	timer.it_value.tv_usec = QUANTUM;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL); 
 	return; 
 }
 
@@ -768,7 +779,7 @@ void setCurrentlyRunningPSJF() {
 	int lowestPriority = temp->thread_control_block->priorityPSJF;
 	node* nextThread = temp;
 	while (temp != NULL){
-		if (temp->thread_control_block->priorityPSJF < lowestPriority && temp->thread_control_block->priorityPSJF == ready){
+		if (temp->thread_control_block->priorityPSJF < lowestPriority && temp->thread_control_block->status == ready){
 			lowestPriority = temp->thread_control_block->priorityPSJF;
 			nextThread = temp;
 		}
@@ -780,9 +791,11 @@ void setCurrentlyRunningPSJF() {
 // takes away a thread
 void dequeuePSJF(node *exitNode){
 	node* temp_node = PSJFqueue.head; 
+	node* found = exitNode;
 	while(temp_node->next != NULL){
 		if(temp_node->next->thread_control_block->id == exitNode->thread_control_block->id){
 			temp_node->next = temp_node->next->next;
+			exitNode->next = NULL;
 			break;
 		}
 	}
