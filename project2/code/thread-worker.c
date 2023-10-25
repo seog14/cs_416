@@ -1,8 +1,8 @@
 // File:	thread-worker.c
 
-// List all group member's name:
-// username of iLab:
-// iLab Server:
+// List all group member's name: Garrett Seo and Gloria Liu
+// username of iLab: gks43 gl492
+// iLab Server: ilab 3 cs416f23-14
 
 #include "thread-worker.h"
 
@@ -126,7 +126,12 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		node * curr_thread = malloc(sizeof(node)); 
 		curr_thread->thread_control_block = thread_control_block; 
 		curr_thread->next = NULL;
-		enqueueMLFQ(curr_thread); 
+		if (useMLFQ == 1){
+			enqueueMLFQ(curr_thread); 
+		}
+		else {
+			enqueuePSJF(curr_thread);
+		}
 		num_threads++; 
 
 		// Initialize Timer 
@@ -174,8 +179,13 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	node * curr_thread = malloc(sizeof(node)); 
 	curr_thread->thread_control_block = thread_control_block; 
 	curr_thread->next = NULL; 
-	enqueueMLFQ(curr_thread); 
-	num_threads++; 
+	if (useMLFQ == 1){
+		enqueueMLFQ(curr_thread); 
+	}
+	else {
+		enqueuePSJF(curr_thread);
+	}
+	num_threads++;  
 
     return 0;
 };
@@ -399,15 +409,21 @@ static void sched_psjf() {
 		currentlyRunningNode->thread_control_block->priorityPSJF += 1;
 	}
 	setCurrentlyRunningPSJF();
-	currentlyRunningNode->thread_control_block->status = running; 
+	tot_cntx_switches++;
+	if(currentlyRunningNode->thread_control_block->response_flag == 0){
+		currentlyRunningNode->thread_control_block->response_flag = 1; 
+		clock_t end_time = clock(); 
+		total_response_time += (double)(end_time - currentlyRunningNode->thread_control_block->start_time) * 1000.0/CLOCKS_PER_SEC;
+		avg_resp_time = total_response_time/num_threads; 
+	}
+	currentlyRunningNode->thread_control_block->status = running;
 	timer.it_interval.tv_sec = 0; 
 	timer.it_interval.tv_usec = QUANTUM; 
 	timer.it_value.tv_usec = QUANTUM;
-	timer.it_value.tv_sec = 0; 
+	timer.it_value.tv_sec = 0;
 	setitimer(ITIMER_PROF, &timer, NULL); 
 	setcontext(&(currentlyRunningNode->thread_control_block->context));
 }
-
 
 /* Preemptive MLFQ scheduling algorithm */
 static void sched_mlfq() {
@@ -790,6 +806,11 @@ void setCurrentlyRunningPSJF() {
 
 // takes away a thread
 void dequeuePSJF(node *exitNode){
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = 0; 
+	timer.it_value.tv_usec = 0;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL);
 	node* temp_node = PSJFqueue.head; 
 	node* found = exitNode;
 	while(temp_node->next != NULL){
@@ -799,5 +820,10 @@ void dequeuePSJF(node *exitNode){
 			break;
 		}
 	}
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = QUANTUM; 
+	timer.it_value.tv_usec = QUANTUM;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL);
 	return;
 }
