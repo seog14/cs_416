@@ -166,9 +166,6 @@ void worker_exit(void *value_ptr) {
 	// - de-allocate any dynamic memory created when starting this thread
 	//free context stack
 	free(currentlyRunningNode->thread_control_block->stack); 
-	if (currentlyRunningNode->thread_control_block->status == blocked){
-		printf("oh no\n");
-	}
 	currentlyRunningNode->thread_control_block->status=exitted;
 	
 	swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
@@ -237,9 +234,12 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 		return 0; 
 	}
 	else{
-		node * current_node = currentlyRunningNode; 
+		// node * current_node = currentlyRunningNode; 
+		// current_node->thread_control_block->status = blocked; 
+		// enqueue_mutex(current_node, mutex->blocked_threads); 
+		node * current_node = dequeueMLFQ(); 
 		current_node->thread_control_block->status = blocked; 
-		enqueue_mutex(current_node, mutex->blocked_threads); 
+		enqueue_mutex(current_node, mutex->blocked_threads);
 		swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
 	}
 
@@ -318,7 +318,6 @@ static void sched_psjf() {
 
 /* Preemptive MLFQ scheduling algorithm */
 static void sched_mlfq() {
-	printf("Current_running_context at sched: %d At priority: %d with status: %d\n", currentlyRunningNode->thread_control_block->id, currentlyRunningNode->thread_control_block->priority, currentlyRunningNode->thread_control_block->status);
 	timer.it_interval.tv_sec = 0; 
 	timer.it_interval.tv_usec = 0; 
 	timer.it_value.tv_usec = 0;
@@ -329,7 +328,7 @@ static void sched_mlfq() {
 		enqueueExit(tempNode);
 	}
 	if (currentlyRunningNode -> thread_control_block->status == blocked){
-		if (time_ran >= 2000){
+		if (time_ran >= S){
 			time_ran = 0; 
 			node* tempNode = dequeueMLFQ(); 
 			tempNode->thread_control_block->priority = 0; 
@@ -349,7 +348,7 @@ static void sched_mlfq() {
 		else
 			dequeueMLFQ();
 	}
-	else if(time_ran >= 2000){
+	else if(time_ran >= S){
 		time_ran = 0; 
 		node * tempNode = dequeueMLFQ(); 
 		while(tempNode != NULL){

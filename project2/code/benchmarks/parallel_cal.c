@@ -115,6 +115,7 @@ int main(int argc, char **argv) {
 	
 	for (i = 0; i < R_SIZE; ++i)
 		free(a[i]);
+    fprintf(stderr , "Total sum is: %d\n", sum);
 
 #ifdef USE_WORKERS
         fprintf(stderr , "Total sum is: %d\n", sum);

@@ -92,6 +92,7 @@ int main(int argc, char **argv) {
 	free(thread);
 	free(counter);
 
+	fprintf(stderr , "Total sum is: %d\n", sum);
 #ifdef USE_WORKERS
         fprintf(stderr , "Total sum is: %d\n", sum);
         print_app_stats();

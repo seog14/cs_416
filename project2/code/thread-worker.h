@@ -10,13 +10,15 @@
 #define _GNU_SOURCE
 
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_WORKERS macro */
-#define USE_WORKERS 1
+//#define USE_WORKERS 1
 
 #define STACK_SIZE SIGSTKSZ
 
 #define TOTAL_QUEUES 4
 
-#define QUANTUM 100
+#define QUANTUM 500000
+
+#define S QUANTUM * 75
 
 /* include lib header files that you need here: */
 #include <unistd.h>
