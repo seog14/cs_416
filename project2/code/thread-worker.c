@@ -1,8 +1,8 @@
 // File:	thread-worker.c
 
-// List all group member's name:
-// username of iLab:
-// iLab Server:
+// List all group member's name: Garrett Seo, Gloria Liu
+// username of iLab: gks43, gl492
+// iLab Server: ilab 3, cs416f23-14
 
 #include "thread-worker.h"
 
@@ -20,6 +20,7 @@ long mutex_id_incrementer = 1;
 long time_ran = 0; 
 ucontext_t scheduler_context; 
 deque queue={NULL, NULL};
+deque PSJFqueue={NULL, NULL};
 deque *MLFQList[TOTAL_QUEUES];
 deque exitQueue = {NULL, NULL};
 node *currentlyRunningNode = NULL;
@@ -27,6 +28,12 @@ deque buffer = {NULL, NULL};
 struct itimerval timer; 
 //node *currentlyRunningMLFQ;
 int timers;
+
+#ifndef MLFQ
+	int useMLFQ = 0;
+#else
+	int useMLFQ = 1;
+#endif
 
 /* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
@@ -60,6 +67,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		void * main_stack=malloc(STACK_SIZE);
 		main_control_block->stack=main_stack; 
 		main_control_block->priority=0; 
+		main_control_block->priorityPSJF=0; 
 		main_control_block->elapsed = 0;
 		main_control_block->status = ready;
 
@@ -78,7 +86,11 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		node* main_node = malloc(sizeof(node)); 
 		main_node->thread_control_block = main_control_block; 
 		main_node->next = NULL; 
-		enqueueMLFQ(main_node);
+		if (useMLFQ == 1){
+			enqueueMLFQ(main_node);
+		} else {
+			enqueuePSJF(main_node);
+		}
 
 		// Create tcb for thread 
 		tcb * thread_control_block = malloc(sizeof(tcb)); 
@@ -88,6 +100,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		void *stack=malloc(STACK_SIZE); 
 		thread_control_block->stack=stack; 
 		thread_control_block->priority=0; 
+		thread_control_block->priorityPSJF=0; 
 		thread_control_block->elapsed=0; 
 		thread_control_block->status = ready;
 
@@ -106,7 +119,11 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 		node * curr_thread = malloc(sizeof(node)); 
 		curr_thread->thread_control_block = thread_control_block; 
 		curr_thread->next = NULL;
-		enqueueMLFQ(curr_thread); 
+		if (useMLFQ == 1){
+			enqueueMLFQ(curr_thread);
+		} else {
+			enqueuePSJF(curr_thread);
+		} 
 
 		// Initialize Timer 
 		// Use sigaction to register signal handler
@@ -132,6 +149,7 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	void *stack=malloc(STACK_SIZE); 
 	thread_control_block->stack=stack; 
 	thread_control_block->priority=0; 
+	thread_control_block->priorityPSJF=0; 
 	thread_control_block->elapsed=0; 
 	thread_control_block->status = ready;
 
@@ -150,7 +168,11 @@ int worker_create(worker_t * thread, pthread_attr_t * attr,
 	node * curr_thread = malloc(sizeof(node)); 
 	curr_thread->thread_control_block = thread_control_block; 
 	curr_thread->next = NULL; 
-	enqueueMLFQ(curr_thread); 
+	if (useMLFQ == 1){
+		enqueueMLFQ(curr_thread);
+	} else {
+		enqueuePSJF(curr_thread);
+	}
 
     return 0;
 };
@@ -184,36 +206,57 @@ int worker_join(worker_t thread, void **value_ptr) {
 		return 0; 
 	}
 	//Wait until thread exists in mlfq
-	while(1){
-		for (i = 0; i < TOTAL_QUEUES; i++){
-			deque *q = MLFQList[i];
-			node *cur = q->head;
-			if (cur != NULL){
-				while (cur != NULL) {
-					if (cur->thread_control_block->id == thread){
-						joining_thread_node = cur;
-						found = 1;
-						break;
+	if (useMLFQ == 1){
+		while(1){
+			for (i = 0; i < TOTAL_QUEUES; i++){
+				deque *q = MLFQList[i];
+				node *cur = q->head;
+				if (cur != NULL){
+					while (cur != NULL) {
+						if (cur->thread_control_block->id == thread){
+							joining_thread_node = cur;
+							found = 1;
+							break;
+						}
+						cur = cur->next;
 					}
-					cur = cur->next;
+				}
+				if (found){
+					break;
 				}
 			}
-			if (found){
+			if(found){
 				break;
 			}
 		}
-		if(found){
-			break;
+		tcb * joining_thread = joining_thread_node->thread_control_block;
+		while(1){
+			if(joining_thread->status==exitted){
+				break;
+			}
 		}
+		pop(thread); 
+		return 0;
 	}
-	tcb * joining_thread = joining_thread_node->thread_control_block;
-	while(1){
-		if(joining_thread->status==exitted){
-			break;
+	else {
+		node *cur = PSJFqueue.head;
+		if (cur != NULL){
+			while (cur != NULL) {
+				if (cur->thread_control_block->id == thread){
+					joining_thread_node = cur;
+					break;
+				}
+				cur = cur->next;
+			}
 		}
+		while(1){
+			if(joining_thread_node->thread_control_block->status==exitted){
+				break;
+			}
+		}
+		pop(thread); 
+		return 0;
 	}
-	pop(thread); 
-	return 0;
 };
 
 /* initialize the mutex lock */
@@ -236,11 +279,20 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 	else{
 		// node * current_node = currentlyRunningNode; 
 		// current_node->thread_control_block->status = blocked; 
-		// enqueue_mutex(current_node, mutex->blocked_threads); 
-		node * current_node = dequeueMLFQ(); 
-		current_node->thread_control_block->status = blocked; 
-		enqueue_mutex(current_node, mutex->blocked_threads);
-		swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
+		// enqueue_mutex(current_node, mutex->blocked_threads);
+		if (useMLFQ == 1){
+			node * current_node = dequeueMLFQ(); 
+			current_node->thread_control_block->status = blocked; 
+			enqueue_mutex(current_node, mutex->blocked_threads);
+			swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
+		}
+		else {
+			node * current_node = currentlyRunningNode;
+			dequeuePSJF(current_node);
+			current_node->thread_control_block->status = blocked; 
+			enqueue_mutex(current_node, mutex->blocked_threads);
+			swapcontext(&(currentlyRunningNode->thread_control_block->context), &scheduler_context);
+		}
 	}
 
         // - use the built-in test-and-set atomic function to test the mutex
@@ -255,11 +307,20 @@ int worker_mutex_lock(worker_mutex_t *mutex) {
 /* release the mutex lock */
 int worker_mutex_unlock(worker_mutex_t *mutex) {
 	__sync_lock_release(&(mutex->available));
-
-	node * temp; 
-	while(mutex->blocked_threads->head != NULL){
-		temp = dequeue_mutex(mutex->blocked_threads); 
-		enqueueMLFQ(temp);
+	if (useMLFQ == 1){
+		node * temp; 
+		while(mutex->blocked_threads->head != NULL){
+			temp = dequeue_mutex(mutex->blocked_threads); 
+			enqueueMLFQ(temp);
+		}
+	}
+	else {
+		node * temp; 
+		while(mutex->blocked_threads->head != NULL){
+			temp = dequeue_mutex(mutex->blocked_threads);
+			temp->thread_control_block->status = ready;
+			enqueuePSJF(temp);
+		}
 	}
 	// - release mutex and make it available again. 
 	// - put threads in block list to run queue 
@@ -299,7 +360,7 @@ static void schedule() {
 
 // - schedule policy
 #ifndef MLFQ
-	sched_mlfq(); 
+	sched_psjf(); 
 #else 
 	// Choose MLFQ
 	sched_mlfq();
@@ -313,6 +374,28 @@ static void sched_psjf() {
 	// (feel free to modify arguments and return types)
 
 	// YOUR CODE HERE
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = 0; 
+	timer.it_value.tv_usec = 0;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL); 
+	if (currentlyRunningNode->thread_control_block->status == exitted){
+		dequeuePSJF(currentlyRunningNode);
+		currentlyRunningNode->next = NULL;
+		enqueueExit(currentlyRunningNode);
+	}
+	if (currentlyRunningNode->thread_control_block->status == running){
+		currentlyRunningNode->thread_control_block->status = ready;
+		currentlyRunningNode->thread_control_block->priorityPSJF += 1;
+	}
+	setCurrentlyRunningPSJF();
+	currentlyRunningNode->thread_control_block->status = running; 
+	timer.it_interval.tv_sec = 0; 
+	timer.it_interval.tv_usec = QUANTUM; 
+	timer.it_value.tv_usec = QUANTUM;
+	timer.it_value.tv_sec = 0; 
+	setitimer(ITIMER_PROF, &timer, NULL); 
+	setcontext(&(currentlyRunningNode->thread_control_block->context));
 }
 
 
@@ -640,4 +723,52 @@ int found_in_exit_queue(worker_t thread){
 		temp_node = temp_node->next; 
 	}
 	return 0; 
+}
+
+void enqueuePSJF(node *new_node){
+	if (currentlyRunningNode == NULL){
+		currentlyRunningNode = new_node;
+		currentlyRunningNode->thread_control_block->status = running;
+	}
+	if (PSJFqueue.head == NULL){
+		PSJFqueue.head = new_node; 
+		PSJFqueue.tail = new_node; 
+		return;
+	}
+	node * temp_node = PSJFqueue.head; 
+	while(temp_node->next != NULL){
+		temp_node = temp_node->next; 
+	}
+	temp_node->next = new_node; 
+	PSJFqueue.tail = new_node; 
+	return; 
+}
+
+void setCurrentlyRunningPSJF() {
+	node *temp = PSJFqueue.head;
+	if (temp == NULL){
+		return;
+	}
+	int lowestPriority = temp->thread_control_block->priorityPSJF;
+	node* nextThread = temp;
+	while (temp != NULL){
+		if (temp->thread_control_block->priorityPSJF < lowestPriority && temp->thread_control_block->priorityPSJF == ready){
+			lowestPriority = temp->thread_control_block->priorityPSJF;
+			nextThread = temp;
+		}
+		temp = temp ->next;
+	}
+	currentlyRunningNode = nextThread;
+}
+
+// takes away a thread
+void dequeuePSJF(node *exitNode){
+	node* temp_node = PSJFqueue.head; 
+	while(temp_node->next != NULL){
+		if(temp_node->next->thread_control_block->id == exitNode->thread_control_block->id){
+			temp_node->next = temp_node->next->next;
+			break;
+		}
+	}
+	return;
 }

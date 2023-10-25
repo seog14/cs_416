@@ -48,6 +48,7 @@ typedef struct TCB {
 	worker_t id;
 	ucontext_t context; 
 	int priority; 
+	int priorityPSJF;
 	void* stack; 
 	enum thread_status status;
 	int elapsed;
@@ -129,6 +130,9 @@ node * dequeue();
 void handle(int signum);
 
 void pop(worker_t thread);
+void dequeuePSJF(node *exitNode);
+void setCurrentlyRunningPSJF();
+void enqueuePSJF(node *new_node);
 
 static void main_context(); 
 static void schedule(); 
