@@ -398,6 +398,7 @@ static void sched_psjf() {
 	timer.it_interval.tv_usec = 0; 
 	timer.it_value.tv_usec = 0;
 	timer.it_value.tv_sec = 0; 
+	//timer.it_interval.tv_sec = 0;
 	setitimer(ITIMER_PROF, &timer, NULL); 
 	if (currentlyRunningNode->thread_control_block->status == exitted){
 		dequeuePSJF(currentlyRunningNode);
