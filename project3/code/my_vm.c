@@ -76,8 +76,18 @@ pte_t *translate(pde_t *pgdir, void *va) {
     * Part 2 HINT: Check the TLB before performing the translation. If
     * translation exists, then you can return physical address from the TLB.
     */
+    int offsetBits = log(PGSIZE);
+    int totalBits = log(MAX_MEMSIZE);
+    int VPNBits = totalBits - offsetBits;
+    int totalPTEntries = pow(2, VPNBits);
+    int pageTableSize = totalPTEntries * sizeof(pte_t);
+    int numberOfPages = pageTableSize / PGSIZE;
+    int PTEBits = log(numberOfPages);
+    int PDEBits = totalBits - offsetBits - PTEBits;
 
-
+    int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
+    int PTEIndex = ((unsigned int)va >> offsetBits) & ((1 << PTEBits) - 1);
+    int offset = (unsigned int)va & ((1 << offsetBits) - 1);
     //If translation not successful, then return NULL
     return NULL; 
 }
