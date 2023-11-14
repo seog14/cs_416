@@ -4,6 +4,11 @@ pde_t **page_directory;
 char *physicalMemory;
 char *virtualPageTracker;
 char *physicalPageTracker;
+struct tlb *tlbStore[TLB_ENTRIES];
+int offsetBits;
+int totalBits;
+int PTEBits;
+int PDEBits;
 
 /*
 Function responsible for allocating and setting your physical memory 
@@ -19,6 +24,18 @@ void set_physical_mem() {
     memset(virtualPageTracker, 0, MAX_MEMSIZE / PGSIZE);
     physicalPageTracker = malloc(MEMSIZE / PGSIZE);
     memset(physicalPageTracker, 0, MEMSIZE / PGSIZE);
+
+    // TLB Store
+    int i;
+    for (i = 0; i < TLB_ENTRIES; i++) {
+        tlbStore[i] = malloc(sizeof(struct tlb));
+    }
+
+    //global
+    offsetBits = (int)log(PGSIZE)/log(2);
+    totalBits = (int)log(MAX_MEMSIZE)/log(2);
+    PTEBits = (int)log(PGSIZE/sizeof(pte_t))/log(2);
+    PDEBits = totalBits - offsetBits - PTEBits;
 }
 
 
@@ -83,6 +100,17 @@ pte_t *translate(pde_t *pgdir, void *va) {
     * Part 2 HINT: Check the TLB before performing the translation. If
     * translation exists, then you can return physical address from the TLB.
     */
+    if (check_TLB(va) != NULL){
+        return check_TLB(va);
+    }
+    int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
+    int PTEIndex = ((unsigned int)va >> offsetBits) & ((1 << PTEBits) - 1);
+    int offset = (unsigned int)va & ((1 << offsetBits) - 1);
+    add_TLB(va, page_directory[PDEIndex][PTEIndex]);
+    //If translation not successful, then return NULL
+    return (page_directory[PDEIndex])[PTEIndex] + offset;
+
+   /*
     int offsetBits = (int)log(PGSIZE)/log(2);
     int totalBits = (int)log(MAX_MEMSIZE)/log(2);
     int VPNBits = totalBits - offsetBits;
@@ -90,14 +118,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
     int pageTableSize = totalPTEntries * sizeof(pte_t);
     int numberOfPages = pageTableSize / PGSIZE;
     int PTEBits = (int)log(numberOfPages)/log(2);
-    int PDEBits = totalBits - offsetBits - PTEBits;
-
-    int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
-    int PTEIndex = ((unsigned int)va >> offsetBits) & ((1 << PTEBits) - 1);
-    int offset = (unsigned int)va & ((1 << offsetBits) - 1);
-    //If translation not successful, then return NULL
-    return (page_directory[PDEIndex])[PTEIndex] + offset;
-    return NULL;
+    int PDEBits = totalBits - offsetBits - PTEBits;*/
 }
 
 
@@ -114,8 +135,6 @@ page_map(pde_t *pgdir, void *va, void *pa)
     /*HINT: Similar to translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
-
-    return -1;
 }
 
 

@@ -31,7 +31,7 @@ struct tlb {
     * Think about the size of each TLB entry that performs virtual to physical
     * address translation.
     */
-};
+} tlb;
 struct tlb tlb_store;
 
 
