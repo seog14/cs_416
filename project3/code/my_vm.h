@@ -36,8 +36,8 @@ struct tlb tlb_store;
 
 
 void set_physical_mem();
-pte_t* translate(pde_t *pgdir, void *va);
-int page_map(pde_t *pgdir, void *va, void* pa);
+pte_t* translate(pde_t **pgdir, void *va);
+int page_map(pde_t **pgdir, void *va, void* pa);
 bool check_in_tlb(void *va);
 void put_in_tlb(void *va, void *pa);
 void *t_malloc(unsigned int num_bytes);
@@ -46,5 +46,8 @@ int put_value(void *va, void *val, int size);
 void get_value(void *va, void *val, int size);
 void mat_mult(void *mat1, void *mat2, int size, void *answer);
 void print_TLB_missrate();
+static void set_bit_at_index(char *bitmap, int index);
+static int get_bit_at_index(char *bitmap, int index);
+void *get_next_avail_p();
 
 #endif
