@@ -40,20 +40,30 @@ void set_physical_mem() {
     physicalPageTracker = malloc(totalPhysicalPages/8);
     memset(physicalPageTracker, 0, totalPhysicalPages/8);
 
-    //First physical page is used for page directory
-    set_bit_at_index(physicalPageTracker, 0);
-    //First page table, maps to second physical page
-    page_directory[0] = get_next_avail_p();
-    set_bit_at_index(physicalPageTracker, 1);
-
-    // TLB Store
-    //tlbStore = malloc(sizeof(struct tlb) * TLB_ENTRIES);
-
     //global
     offsetBits = log(PGSIZE)/log(2);
     totalBits = log(MAX_MEMSIZE)/log(2);
     PTEBits = log(PGSIZE/sizeof(pte_t))/log(2);
     PDEBits = totalBits - offsetBits - PTEBits;
+
+    //Find pages needed for directory and allocate them in physical memory
+    int num_pde = (1 << PDEBits);
+    int num_pages_for_directory = ((num_pde * 4) + PGSIZE - 1) / PGSIZE;
+    pde_t *** ptr = page_directory;
+    int i; 
+    for (i = 0; i < num_pde; i++){
+        *ptr = NULL;
+        ptr++; 
+    }
+    for(i = 0; i < num_pages_for_directory; i++){
+        set_bit_at_index(physicalPageTracker, i);
+    }
+    set_bit_at_index(physicalPageTracker, 0);
+    //First page table, maps to second physical page
+    page_directory[0] = get_next_avail_p();
+
+    // TLB Store
+    //tlbStore = malloc(sizeof(struct tlb) * TLB_ENTRIES);
 }
 
 
@@ -110,7 +120,7 @@ print_TLB_missrate()
 The function takes a virtual address and page directories starting address and
 performs translation to return the physical address
 */
-pte_t *translate(pde_t **pgdir, void *va) {
+pte_t *translate(pde_t *pgdir, void *va) {
     /* Part 1 HINT: Get the Page directory index (1st level) Then get the
     * 2nd-level-page table index using the virtual address.  Using the page
     * directory index and page table index get the physical address.
@@ -122,10 +132,25 @@ pte_t *translate(pde_t **pgdir, void *va) {
     /*if (check_TLB(va) != NULL){
         return check_TLB(va) + offset;
     }*/
+
+
+    
     int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
     int PTEIndex = ((unsigned int)va >> offsetBits) & ((1 << PTEBits) - 1);
     int offset = (unsigned int)va & ((1 << offsetBits) - 1);
-    return (pte_t*)(page_directory[PDEIndex])[PTEIndex] + offset;
+    pde_t *** pageDirectoryEntry = page_directory + PDEIndex; 
+    pte_t ** pageOfPageTable = *pageDirectoryEntry; 
+    if (pageOfPageTable == NULL){
+        return NULL; // Not a valid page directory index
+    }
+    pte_t ** pageTableEntry = pageOfPageTable + PTEIndex; 
+
+    return *pageTableEntry + offset;
+    /*
+    if (page_directory[PDEIndex])[PTEIndex] == NULL {
+        return NULL;
+    }
+    return (pte_t*)(page_directory[PDEIndex])[PTEIndex] + offset;*/
 }
 
 
@@ -136,7 +161,7 @@ directory to see if there is an existing mapping for a virtual address. If the
 virtual address is not present, then a new entry will be added
 */
 int
-page_map(pde_t **pgdir, void *va, void *pa)
+page_map(pde_t *pgdir, void *va, void *pa)
 {
     /*HINT: Similar to translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
@@ -145,6 +170,7 @@ page_map(pde_t **pgdir, void *va, void *pa)
     // map the virtual address to the physical address
     int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
     int PTEIndex = ((unsigned int)va >> offsetBits) & ((1 << PTEBits) - 1);
+
     if (page_directory[PDEIndex] == NULL){
         // allocate a new page for the new page table and add it to page directory
         // get next available physical page
@@ -158,7 +184,7 @@ page_map(pde_t **pgdir, void *va, void *pa)
 }
 
 
-/*Function that gets the next available page
+/*Function that gets the next available page frame number (not address)
 */
 void *get_next_avail(int num_pages) {
     //Use virtual address bitmap to find the next free page
@@ -167,18 +193,39 @@ void *get_next_avail(int num_pages) {
         if (get_bit_at_index(virtualPageTracker, i) == 0){
             // check if we have contiguous space for the num_pages
             // may not be necessary?
-            /*for (j = 0; j < num_pages; j++){
+            int j;
+            int notGood = 0;
+            for (j = 0; j < num_pages; j++){
                 if (get_bit_at_index(virtualPageTracker, i + j) == 1){
+                    notGood = 1;
                     break;
                 }
-            }*/
-            set_bit_at_index(virtualPageTracker, i);
-            return (void *)i;
+            }
+            if (!notGood){
+                for (j = 0; j < num_pages; j++){
+                    set_bit_at_index(virtualPageTracker, i + j);
+                }
+                return (void *)i;
+            }
         }
     }
     // no pages left
-    return (void *)-1;
+    return NULL;
 }
+
+/*void *get_next_avail(int num_pages) {
+    int next_virtual_avail_index; 
+    int size = sizeof(virtualPageTracker)/sizeof(virtualPageTracker[0]); 
+    int i; 
+    int j; 
+    for(i = 0; i < size; i++){
+        for(j = 0; j < 8 - (num_pages - 1); j++){
+            if(physicalPageTracker[i] & (1 << j) == 0){
+
+            }
+        }
+    }
+}*/
 
 
 /* Function responsible for allocating pages
@@ -200,11 +247,16 @@ void *t_malloc(unsigned int num_bytes) {
     * have to mark which physical pages are used.
     */
    //TODO: allocate multiple pages at once
-   int VPN = (int)get_next_avail(1);
+   int pagesNeeded = (num_bytes + PGSIZE - 1) / PGSIZE;
+   int VPN = (int)get_next_avail(pagesNeeded);
    printf("Next available page number = %d\n", VPN);
-   unsigned int physicalAddress = (unsigned int)get_next_avail_p();
-   printf("Next available physical page number = %x\n", physicalAddress);
-   page_map(NULL, (void *)(VPN << offsetBits), (void *)physicalAddress);
+   int i;
+   for (i = 0; i < pagesNeeded; i++){
+        unsigned int physicalAddress = (unsigned int)get_next_avail_p();
+        //printf("Next available physical page number = %x\n", physicalAddress);
+        int actualVirtualAddress = (VPN + i)*PGSIZE;
+        page_map(NULL, (void *)(actualVirtualAddress), (void *)physicalAddress);
+   }
    return (void *)(VPN << offsetBits);
 }
 
@@ -335,7 +387,7 @@ static int get_bit_at_index(char *bitmap, int index)
     return correctChar % 2;
 }
 
-// Gets the address of the next available physical frame number
+// Gets the address of the next available physical address
 void *get_next_avail_p(){
     int i;
     for (i = 0; i < totalPhysicalPages; i ++){
@@ -345,6 +397,6 @@ void *get_next_avail_p(){
         }
     }
     // no pages left in physical memory
-    return (void *)-1;
+    return NULL;
 }
 
