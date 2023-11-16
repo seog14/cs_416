@@ -1,10 +1,12 @@
 #include "my_vm.h"
+#include <string.h>
+#include <math.h>
 
-pde_t **page_directory;
+pde_t ***page_directory;
 void *physicalMemory;
 char *virtualPageTracker;
 char *physicalPageTracker;
-struct tlb *tlbStore[TLB_ENTRIES];
+//struct tlb *tlbStore[TLB_ENTRIES];
 int offsetBits;
 int totalBits;
 int PTEBits;
@@ -20,7 +22,16 @@ void set_physical_mem() {
     //Allocate physical memory using mmap or malloc; this is the total size of
     //your memory you are simulating
     physicalMemory = malloc(MEMSIZE);
-    page_directory = &physicalMemory;
+    page_directory = (pde_t ***)physicalMemory;
+    
+    
+    printf("Address of physicalMemory = %p\n", physicalMemory);
+    printf("Address of page_directory = %p\n", page_directory);
+    /*
+    printf("Address of page_directory first frame = %p\n", (void *)&page_directory[0][0]);
+    printf("Address of page_directory first entry = %p\n", (void *)&page_directory[0]);
+    printf("Address of page_directory second entry = %p\n", (void *)&page_directory[1]);
+    printf("Address of page_directory second frame = %p\n", (void *)&page_directory[0][1]);*/
 
     //HINT: Also calculate the number of physical and virtual pages and allocate
     //virtual and physical bitmaps and initialize them
@@ -31,14 +42,17 @@ void set_physical_mem() {
 
     //First physical page is used for page directory
     set_bit_at_index(physicalPageTracker, 0);
+    //First page table, maps to second physical page
+    page_directory[0] = get_next_avail_p();
+    set_bit_at_index(physicalPageTracker, 1);
 
     // TLB Store
     //tlbStore = malloc(sizeof(struct tlb) * TLB_ENTRIES);
 
     //global
-    offsetBits = (int)log(PGSIZE)/log(2);
-    totalBits = (int)log(MAX_MEMSIZE)/log(2);
-    PTEBits = (int)log(PGSIZE/sizeof(pte_t))/log(2);
+    offsetBits = log(PGSIZE)/log(2);
+    totalBits = log(MAX_MEMSIZE)/log(2);
+    PTEBits = log(PGSIZE/sizeof(pte_t))/log(2);
     PDEBits = totalBits - offsetBits - PTEBits;
 }
 
@@ -111,9 +125,7 @@ pte_t *translate(pde_t **pgdir, void *va) {
     int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
     int PTEIndex = ((unsigned int)va >> offsetBits) & ((1 << PTEBits) - 1);
     int offset = (unsigned int)va & ((1 << offsetBits) - 1);
-    //add_TLB(va, page_directory[PDEIndex][PTEIndex]);
-    //If translation not successful, then return NULL
-    return (pgdir[PDEIndex])[PTEIndex] + offset;
+    return (pte_t*)(page_directory[PDEIndex])[PTEIndex] + offset;
 }
 
 
@@ -130,30 +142,18 @@ page_map(pde_t **pgdir, void *va, void *pa)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
 
-    // check if physical page is allocated already
-    int physicalPage = (unsigned int)pa >> (offsetBits);
-    if (get_bit_at_index(physicalPageTracker, physicalPage) == 1){
-        return -1;
-    }
-    // check if virtual page is allocated already
-    int virtualPage = (unsigned int)va >> (offsetBits);
-    if (get_bit_at_index(virtualPageTracker, virtualPage) == 1){
-        return -1;
-    }
-
     // map the virtual address to the physical address
     int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
     int PTEIndex = ((unsigned int)va >> offsetBits) & ((1 << PTEBits) - 1);
-    if (pgdir[PDEIndex] == NULL){
+    if (page_directory[PDEIndex] == NULL){
         // allocate a new page for the new page table and add it to page directory
-        // virtual page
-        get_next_avail(1);
         // get next available physical page
-        pde_t pageAddress = (pde_t)((uintptr_t)get_next_avail_p() << offsetBits);
-        pgdir[PDEIndex] = pageAddress;
+        page_directory[PDEIndex] = get_next_avail_p();
     }
     int offset = (unsigned int)va & ((1 << offsetBits) - 1);
-    pgdir[PDEIndex][PTEIndex] = (pte_t *)((uintptr_t)pa - (uintptr_t)(void *)offset);
+    page_directory[PDEIndex][PTEIndex] = (pte_t *)(pa - offset);
+    printf("What was stored %lx\n", (long unsigned int)page_directory[PDEIndex][PTEIndex]);
+    printf("translate functon %lx\n", (long unsigned int)translate(NULL, va));
     return 0;
 }
 
@@ -161,7 +161,6 @@ page_map(pde_t **pgdir, void *va, void *pa)
 /*Function that gets the next available page
 */
 void *get_next_avail(int num_pages) {
- 
     //Use virtual address bitmap to find the next free page
     int i;
     for (i = 0; i < totalVirtualPages; i ++){
@@ -174,11 +173,11 @@ void *get_next_avail(int num_pages) {
                 }
             }*/
             set_bit_at_index(virtualPageTracker, i);
-            return i;
+            return (void *)i;
         }
     }
     // no pages left
-    return -1;
+    return (void *)-1;
 }
 
 
@@ -200,9 +199,13 @@ void *t_malloc(unsigned int num_bytes) {
     * free pages are available, set the bitmaps and map a new page. Note, you will 
     * have to mark which physical pages are used.
     */
-   int totalNeededPages = num_bytes/PGSIZE + 1;
-   int VPN = get_next_avail(totalNeededPages);
-    return NULL;
+   //TODO: allocate multiple pages at once
+   int VPN = (int)get_next_avail(1);
+   printf("Next available page number = %d\n", VPN);
+   unsigned int physicalAddress = (unsigned int)get_next_avail_p();
+   printf("Next available physical page number = %x\n", physicalAddress);
+   page_map(NULL, (void *)(VPN << offsetBits), (void *)physicalAddress);
+   return (void *)(VPN << offsetBits);
 }
 
 /* Responsible for releasing one or more memory pages using virtual address (va)
@@ -215,7 +218,15 @@ void t_free(void *va, int size) {
      *
      * Part 2: Also, remove the translation from the TLB
      */
-    
+    //TODO: Free pages when the size is more than one page in size
+    pte_t *physicalAddress = translate(NULL, va);
+    memset(physicalAddress, 0, size);
+    int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
+    int PTEIndex = ((unsigned int)va >> offsetBits) & ((1 << PTEBits) - 1);
+
+    page_directory[PDEIndex][PTEIndex] = NULL;
+    int virtualPage = (unsigned int)va >> (offsetBits);
+    free_bit_at_index(virtualPageTracker, virtualPage);
 }
 
 
@@ -230,7 +241,10 @@ int put_value(void *va, void *val, int size) {
      * than one page. Therefore, you may have to find multiple pages using translate()
      * function.
      */
-
+    pte_t *physicalAddress = translate(NULL, va);
+    memcpy((void *)physicalAddress, val, size);
+    //printf("the number %ld is stored in physical address %lx\n", *physicalAddress, (unsigned long int)physicalAddress);
+    return 0;
 
     /*return -1 if put_value failed and 0 if put is successfull*/
 
@@ -243,7 +257,9 @@ void get_value(void *va, void *val, int size) {
     /* HINT: put the values pointed to by "va" inside the physical memory at given
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
-
+    pte_t *physicalAddress = translate(NULL, va);
+    memcpy((void *)val, physicalAddress, size);
+    //printf("the number %ld is in val", *val);
 
 }
 
@@ -294,9 +310,20 @@ static void set_bit_at_index(char *bitmap, int index)
     return;
 }
 
+static void free_bit_at_index(char *bitmap, int index)
+{
+    //Implement your code here	
+    int byteIndex = index / 8;
+    int offset = index % 8;
+    unsigned char mask = 1 << offset;
+    bitmap[byteIndex] &= ~mask;
+    //printf("bitmap index %d", bitmap[byteIndex]);
+    return;
+}
+
 
 /* 
- * Function 3: GETTING A BIT AT AN INDEX 
+ * GETTING A BIT AT AN INDEX 
  */
 static int get_bit_at_index(char *bitmap, int index)
 {
@@ -308,15 +335,16 @@ static int get_bit_at_index(char *bitmap, int index)
     return correctChar % 2;
 }
 
+// Gets the address of the next available physical frame number
 void *get_next_avail_p(){
     int i;
     for (i = 0; i < totalPhysicalPages; i ++){
         if (get_bit_at_index(physicalPageTracker, i) == 0){
             set_bit_at_index(physicalPageTracker, i);
-            return i;
+            return (void *)(i * PGSIZE) + ((unsigned long int)physicalMemory);
         }
     }
     // no pages left in physical memory
-    return -1;
+    return (void *)-1;
 }
 

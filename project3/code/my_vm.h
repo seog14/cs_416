@@ -31,12 +31,12 @@ struct tlb {
     * Think about the size of each TLB entry that performs virtual to physical
     * address translation.
     */
-} tlb;
-struct tlb tlb_store;
+};
+//struct tlb tlbStore;
 
 
 void set_physical_mem();
-pte_t* translate(pde_t **pgdir, void *va);
+pte_t *translate(pde_t **pgdir, void *va);
 int page_map(pde_t **pgdir, void *va, void* pa);
 bool check_in_tlb(void *va);
 void put_in_tlb(void *va, void *pa);
@@ -48,6 +48,8 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer);
 void print_TLB_missrate();
 static void set_bit_at_index(char *bitmap, int index);
 static int get_bit_at_index(char *bitmap, int index);
+static void free_bit_at_index(char *bitmap, int index);
+void *get_next_avail(int num_pages);
 void *get_next_avail_p();
 
 #endif
