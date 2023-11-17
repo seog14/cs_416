@@ -6,7 +6,7 @@ pde_t ***page_directory;
 void *physicalMemory;
 char *virtualPageTracker;
 char *physicalPageTracker;
-//struct tlb *tlbStore[TLB_ENTRIES];
+struct tlb *tlbStore;
 int offsetBits;
 int totalBits;
 int PTEBits;
@@ -49,6 +49,7 @@ void set_physical_mem() {
     PDEBits = totalBits - offsetBits - PTEBits;
 
     //Find pages needed for directory and allocate them in physical memory
+    //In case multiple pages needed for the directory
     int num_pde = (1 << PDEBits);
     int num_pages_for_directory = ((num_pde * 4) + PGSIZE - 1) / PGSIZE;
     pde_t *** ptr = page_directory;
@@ -65,7 +66,10 @@ void set_physical_mem() {
     page_directory[0] = get_next_avail_p();
 
     // TLB Store
-    //tlbStore = malloc(sizeof(struct tlb) * TLB_ENTRIES);
+    tlbStore = malloc(sizeof(struct tlb) * (TLB_ENTRIES + 1));
+    for (i = 0; i < TLB_ENTRIES; i++){
+        tlbStore[i].VPN = -1;
+    }
 }
 
 
@@ -78,7 +82,26 @@ add_TLB(void *va, void *pa)
 {
 
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
-
+    //Eviction policy: clock algorithm
+    unsigned int VPN = ((unsigned int)va >> offsetBits);
+    int i;
+    /*
+    int lowestPriorityIndex = 0;
+    unsigned int lowestPriority = -1;*/
+    for (i = 0; i < TLB_ENTRIES; i++){
+        if (tlbStore[i].VPN == -1){
+            struct tlb newEntry;
+            newEntry.VPN = VPN;
+            newEntry.physicalAddress = pa;
+            newEntry.priority = 0;
+            tlbStore[i] = newEntry;
+            return 0;
+        } else {
+            // TODO: add eviction policy
+            continue;
+        }
+    }
+    printf("oops not successul\n");
     return -1;
 }
 
@@ -92,8 +115,14 @@ pte_t *
 check_TLB(void *va) {
 
     /* Part 2: TLB lookup code here */
-
-
+    unsigned int VPN = ((unsigned int)va >> offsetBits);
+    int i;
+    for (i = 0; i < TLB_ENTRIES; i++){
+        if (tlbStore[i].VPN == VPN){
+            return (pte_t*)tlbStore[i].physicalAddress;
+        }
+    }
+    return (pte_t*)-1;
 
    /*This function should return a pte_t pointer*/
 }
@@ -109,10 +138,7 @@ print_TLB_missrate()
     double miss_rate = 0;	
 
     /*Part 2 Code here to calculate and print the TLB miss rate*/
-
-
-
-
+    
     fprintf(stderr, "TLB miss rate %lf \n", miss_rate);
 }
 
@@ -130,23 +156,21 @@ pte_t *translate(pde_t *pgdir, void *va) {
     * Part 2 HINT: Check the TLB before performing the translation. If
     * translation exists, then you can return physical address from the TLB.
     */
-
-    /*if (check_TLB(va) != NULL){
+    int offset = (unsigned int)va & ((1 << offsetBits) - 1);
+    if ((int)check_TLB(va) != -1){
+        //printf("Check TLB used\n");
         return check_TLB(va) + offset;
-    }*/
-
-
-    
+    }
     int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
     int PTEIndex = ((unsigned int)va >> offsetBits) & ((1 << PTEBits) - 1);
-    int offset = (unsigned int)va & ((1 << offsetBits) - 1);
     pde_t *** pageDirectoryEntry = page_directory + PDEIndex; 
     pte_t ** pageOfPageTable = *pageDirectoryEntry; 
     if (pageOfPageTable == NULL){
         return NULL; // Not a valid page directory index
     }
     pte_t ** pageTableEntry = pageOfPageTable + PTEIndex; 
-
+    /*int success = add_TLB(va, (void *) *pageTableEntry);
+    printf("TLB added if success is 0 %d\n", success);*/
     return *pageTableEntry + offset;
     /*
     if (page_directory[PDEIndex])[PTEIndex] == NULL {
@@ -180,6 +204,9 @@ page_map(pde_t *pgdir, void *va, void *pa)
     }
     int offset = (unsigned int)va & ((1 << offsetBits) - 1);
     page_directory[PDEIndex][PTEIndex] = (pte_t *)(pa - offset);
+    /*
+    int success = add_TLB(va, pa);
+    printf("TLB added if success in page map is 0 %d\n", success);*/
     printf("What was stored %lx\n", (long unsigned int)page_directory[PDEIndex][PTEIndex]);
     printf("translate functon %lx\n", (long unsigned int)translate(NULL, va));
     return 0;

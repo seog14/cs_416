@@ -32,6 +32,9 @@ struct tlb {
     * Think about the size of each TLB entry that performs virtual to physical
     * address translation.
     */
+   unsigned int VPN;
+   pte_t* physicalAddress;
+   int priority;
 };
 //struct tlb tlbStore;
 
