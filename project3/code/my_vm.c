@@ -13,12 +13,14 @@ int PTEBits;
 int PDEBits;
 int totalVirtualPages = (MAX_MEMSIZE / PGSIZE);
 int totalPhysicalPages = (MEMSIZE / PGSIZE);
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
 
 /*
 Function responsible for allocating and setting your physical memory 
 */
 void set_physical_mem() {
-
+    
     //Allocate physical memory using mmap or malloc; this is the total size of
     //your memory you are simulating
     physicalMemory = malloc(MEMSIZE);
@@ -232,13 +234,14 @@ void *get_next_avail(int num_pages) {
 and used by the benchmark
 */
 void *t_malloc(unsigned int num_bytes) {
-
     /* 
      * HINT: If the physical memory is not yet initialized, then allocate and initialize.
      */
+    pthread_mutex_lock(&mutex); 
     if (physicalMemory == NULL){
         set_physical_mem();
     }
+    pthread_mutex_unlock(&mutex); 
 
    /* 
     * HINT: If the page directory is not initialized, then initialize the
@@ -247,23 +250,26 @@ void *t_malloc(unsigned int num_bytes) {
     * have to mark which physical pages are used.
     */
    //TODO: allocate multiple pages at once
-   int pagesNeeded = (num_bytes + PGSIZE - 1) / PGSIZE;
-   int VPN = (int)get_next_avail(pagesNeeded);
-   printf("Next available page number = %d\n", VPN);
-   int i;
-   for (i = 0; i < pagesNeeded; i++){
+    int pagesNeeded = (num_bytes + PGSIZE - 1) / PGSIZE;
+    pthread_mutex_lock(&mutex); 
+    int VPN = (int)get_next_avail(pagesNeeded);
+    pthread_mutex_unlock(&mutex); 
+    printf("Next available page number = %d\n", VPN);
+    int i;
+    pthread_mutex_lock(&mutex);
+    for (i = 0; i < pagesNeeded; i++){
         unsigned int physicalAddress = (unsigned int)get_next_avail_p();
         //printf("Next available physical page number = %x\n", physicalAddress);
         int actualVirtualAddress = (VPN + i)*PGSIZE;
         page_map(NULL, (void *)(actualVirtualAddress), (void *)physicalAddress);
-   }
-   return (void *)(VPN << offsetBits);
+    }
+    pthread_mutex_unlock(&mutex);
+    return (void *)(VPN << offsetBits);
 }
 
 /* Responsible for releasing one or more memory pages using virtual address (va)
 */
 void t_free(void *va, int size) {
-
     /* Part 1: Free the page table entries starting from this virtual address
      * (va). Also mark the pages free in the bitmap. Perform free only if the 
      * memory from "va" to va+size is valid.
@@ -271,6 +277,7 @@ void t_free(void *va, int size) {
      * Part 2: Also, remove the translation from the TLB
      */
     //TODO: Free pages when the size is more than one page in size
+    pthread_mutex_lock(&mutex); 
     pte_t *physicalAddress = translate(NULL, va);
     memset(physicalAddress, 0, size);
     int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
@@ -279,6 +286,7 @@ void t_free(void *va, int size) {
     page_directory[PDEIndex][PTEIndex] = NULL;
     int virtualPage = (unsigned int)va >> (offsetBits);
     free_bit_at_index(virtualPageTracker, virtualPage);
+    pthread_mutex_unlock(&mutex);
 }
 
 
@@ -287,7 +295,7 @@ void t_free(void *va, int size) {
  * The function returns 0 if the put is successfull and -1 otherwise.
 */
 int put_value(void *va, void *val, int size) {
-
+    pthread_mutex_lock(&mutex);
     /* HINT: Using the virtual address and translate(), find the physical page. Copy
      * the contents of "val" to a physical page. NOTE: The "size" value can be larger 
      * than one page. Therefore, you may have to find multiple pages using translate()
@@ -295,6 +303,7 @@ int put_value(void *va, void *val, int size) {
      */
     pte_t *physicalAddress = translate(NULL, va);
     memcpy((void *)physicalAddress, val, size);
+    pthread_mutex_unlock(&mutex);
     //printf("the number %ld is stored in physical address %lx\n", *physicalAddress, (unsigned long int)physicalAddress);
     return 0;
 
@@ -305,12 +314,14 @@ int put_value(void *va, void *val, int size) {
 
 /*Given a virtual address, this function copies the contents of the page to val*/
 void get_value(void *va, void *val, int size) {
-
     /* HINT: put the values pointed to by "va" inside the physical memory at given
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
+    pthread_mutex_lock(&mutex);
     pte_t *physicalAddress = translate(NULL, va);
     memcpy((void *)val, physicalAddress, size);
+    pthread_mutex_unlock(&mutex);
+
     //printf("the number %ld is in val", *val);
 
 }
