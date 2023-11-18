@@ -4,7 +4,7 @@
 #include "../my_vm.h"
 
 #define SIZE 5
-#define ARRAY_SIZE 400
+#define ARRAY_SIZE 8000
 
 int main() {
 
@@ -68,6 +68,7 @@ int main() {
         printf("free function works\n");
     else
         printf("free function does not work\n");
-
+    
+    print_TLB_missrate();
     return 0;
 }

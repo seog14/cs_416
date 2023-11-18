@@ -100,6 +100,7 @@ int main() {
         printf("\n");
     }
     int old = (int)pointers[0];
+    printf("old before free %d\n", old);
     printf("Gonna free everything in multiple threads!\n");
     // ufree(pointers[0], alloc_size);
     //
@@ -110,9 +111,11 @@ int main() {
         pthread_join(threads[i], NULL);
 
     void *temp = (void *)1;
+
     int flag = 0;
     while (temp != NULL) {
         temp = t_malloc(10);
+        printf("This is temp %d and old %d\n", (int)temp, old);
         if ((int)temp == old) {
             printf("Free Worked!\n");
             flag = 1;
@@ -122,4 +125,6 @@ int main() {
     if (!flag) {
         printf("Some Problem with free!\n");
     }
+
+    print_TLB_missrate();
 }

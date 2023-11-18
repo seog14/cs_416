@@ -34,7 +34,7 @@ struct tlb {
     */
    unsigned int VPN;
    pte_t* physicalAddress;
-   int priority;
+   int mostRecentTLBUse;
 };
 //struct tlb tlbStore;
 
@@ -42,14 +42,17 @@ struct tlb {
 void set_physical_mem();
 pte_t *translate(pde_t *pgdir, void *va);
 int page_map(pde_t *pgdir, void *va, void* pa);
-bool check_in_tlb(void *va);
-void put_in_tlb(void *va, void *pa);
+//bool check_in_tlb(void *va);
+//void put_in_tlb(void *va, void *pa);
+//int add_TLB(void *va, void *pa);
+//pte_t *check_TLB(void *va)
 void *t_malloc(unsigned int num_bytes);
 void t_free(void *va, int size);
 int put_value(void *va, void *val, int size);
 void get_value(void *va, void *val, int size);
 void mat_mult(void *mat1, void *mat2, int size, void *answer);
 void print_TLB_missrate();
+void free_TLB(unsigned int VPN);
 static void set_bit_at_index(char *bitmap, int index);
 static int get_bit_at_index(char *bitmap, int index);
 static void free_bit_at_index(char *bitmap, int index);
