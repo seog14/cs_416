@@ -26,6 +26,7 @@ void set_physical_mem() {
     //Allocate physical memory using mmap or malloc; this is the total size of
     //your memory you are simulating
     physicalMemory = malloc(MEMSIZE);
+    memset(physicalMemory, 0, MEMSIZE);
     page_directory = (pde_t ***)physicalMemory;
     
     
@@ -65,6 +66,7 @@ void set_physical_mem() {
     }
     set_bit_at_index(physicalPageTracker, 0);
     //First page table, maps to second physical page
+
     page_directory[0] = get_next_avail_p();
 
     // TLB Store
@@ -194,7 +196,9 @@ pte_t *translate(pde_t *pgdir, void *va) {
     pde_t *** pageDirectoryEntry = page_directory + PDEIndex; 
     pte_t ** pageOfPageTable = *pageDirectoryEntry; 
     if (pageOfPageTable == NULL){
-        return NULL; // Not a valid page directory index
+        exit(1);
+        fprintf(stderr,"Accessing invalid entry in translate function\n");
+        return (pte_t *)-1; // Not a valid page directory index
     }
     pte_t ** pageTableEntry = pageOfPageTable + PTEIndex; 
     int success = add_TLB(va, (void *) *pageTableEntry);
@@ -267,7 +271,9 @@ void *get_next_avail(int num_pages) {
         }
     }
     // no pages left
-    return NULL;
+    exit(1);
+    fprintf(stderr,"No more virtual pages\n");
+    return (void *)-1;
 }
 
 /*void *get_next_avail(int num_pages) {
@@ -316,6 +322,7 @@ void *t_malloc(unsigned int num_bytes) {
         //printf("physical address %x\n", physicalAddress);
         //printf("Next available physical page number = %x\n", physicalAddress);
         int actualVirtualAddress = (VPN + i)*PGSIZE;
+        memset((void *)physicalAddress, 0, PGSIZE);
         page_map(NULL, (void *)(actualVirtualAddress), (void *)physicalAddress);
     }
     pthread_mutex_unlock(&mutex);
@@ -331,39 +338,38 @@ void t_free(void *va, int size) {
      *
      * Part 2: Also, remove the translation from the TLB
      */
-
-    pthread_mutex_lock(&mutex); 
-    // Check if size is valid 
-    pte_t *physicalAddress = translate(NULL, va);
-    int pagesForSize = (int) (size / PGSIZE) + 1;
-    unsigned int finalVPN = ((unsigned int)va >> offsetBits) + pagesForSize;
-    unsigned int VPN;
-    for (VPN = ((unsigned int)va >> offsetBits); VPN < finalVPN; VPN++){
-        if (get_bit_at_index(virtualPageTracker, VPN) == 0){
-            perror("Memory from va to va + size is not valid");
-            return;
+    int pagesNeeded = (size + PGSIZE - 1) / PGSIZE; 
+    int i; 
+    int vpn = (unsigned int) va >> offsetBits; 
+    int offset = (unsigned int)va & ((1 << offsetBits) - 1);
+    for (i = 0; i < pagesNeeded; i++){
+        pthread_mutex_lock(&mutex);
+        int actualVirtualAddress = ((unsigned int)(vpn + i) * PGSIZE) + offset; 
+        pte_t *physicalAddress = translate(NULL, (void*) actualVirtualAddress);
+        pte_t *physicalFrame = physicalAddress - offset;
+        long unsigned int physicalPage = ((long unsigned int)physicalFrame - (long unsigned int)physicalMemory) / (PGSIZE); 
+        int virtualPage = (unsigned int) actualVirtualAddress >> offsetBits; 
+        if (get_bit_at_index(virtualPageTracker, virtualPage) == 0){
+			fprintf(stderr,"Freeing already freed page\n");
+			exit(1);
         }
-    }
-
-    // Free pages from va to size
-    for (VPN = ((unsigned int)va >> offsetBits); VPN < finalVPN; VPN++){
-        // free physical page and physical page trackers
-        void *virtualAddress = (void *)(VPN << offsetBits);
-        pte_t *physicalAddress = translate(NULL, virtualAddress);
-        unsigned int fakePhysicalAddress = (unsigned int)physicalAddress - (unsigned int)physicalMemory;
-        free_bit_at_index(physicalPageTracker, (unsigned int)(fakePhysicalAddress) >> offsetBits);
+        free_bit_at_index(virtualPageTracker, virtualPage);
+        if (get_bit_at_index(physicalPageTracker, physicalPage) == 0){
+            fprintf(stderr,"Freeing already freed page\n");
+            exit(1);
+        }
+        free_bit_at_index(physicalPageTracker, physicalPage);
         memset(physicalAddress, 0, PGSIZE);
-        //printf("Freeings physical\n");
-        // free page table entry and virtual page trackers
-        int PDEIndex = (unsigned int)virtualAddress >> (offsetBits + PTEBits);
-        int PTEIndex = ((unsigned int)virtualAddress >> offsetBits) & ((1 << PTEBits) - 1);
-        page_directory[PDEIndex][PTEIndex] = NULL;
-        //printf("Freeings virtual\n");
-        free_bit_at_index(virtualPageTracker, VPN);
-        // free TLB entry
-        free_TLB(VPN);
+        free_TLB(virtualPage);
+        pthread_mutex_unlock(&mutex);
     }
-    pthread_mutex_unlock(&mutex);
+    // pte_t *physicalAddress = translate(NULL, va);
+    // memset(physicalAddress, 0, size);
+    // int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);
+    // int PTEIndex = ((unsigned int)va >> offsetBits) & ((1 << PTEBits) - 1);
+    // int virtualPage = (unsigned int)va >> (offsetBits);
+    // page_directory[PDEIndex][PTEIndex] = NULL;
+    // free_bit_at_index(virtualPageTracker, virtualPage);
 }
 
 
@@ -378,8 +384,16 @@ int put_value(void *va, void *val, int size) {
      * than one page. Therefore, you may have to find multiple pages using translate()
      * function.
      */
-    pte_t *physicalAddress = translate(NULL, va);
-    memcpy((void *)physicalAddress, val, size);
+    int pagesNeeded = (size + PGSIZE - 1) / PGSIZE;
+    int i;
+    int sizeLeft = size;
+    for (i = 0; i < pagesNeeded; i++){
+        pte_t *physicalAddress = translate(NULL, va + i);
+        memcpy((void *)physicalAddress, val, min(sizeLeft, PGSIZE));
+        val += PGSIZE;
+        sizeLeft -= PGSIZE;
+    }
+    //memcpy((void *)physicalAddress, val, size);
     pthread_mutex_unlock(&mutex);
     //printf("the number %ld is stored in physical address %lx\n", *physicalAddress, (unsigned long int)physicalAddress);
     return 0;
@@ -395,10 +409,21 @@ void get_value(void *va, void *val, int size) {
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
     pthread_mutex_lock(&mutex);
-    pte_t *physicalAddress = translate(NULL, va);
-    memcpy((void *)val, physicalAddress, size);
+    int pagesNeeded = (size + PGSIZE - 1) / PGSIZE;
+    int i;
+    int sizeLeft = size;
+    for (i = 0; i < pagesNeeded; i++){
+        pte_t *physicalAddress = translate(NULL, va + i);
+        memcpy((void *)val, physicalAddress, min(sizeLeft, PGSIZE));
+        val += PGSIZE;
+        sizeLeft -= PGSIZE;
+    }
+    //memcpy((void *)physicalAddress, val, size);
     pthread_mutex_unlock(&mutex);
-
+    //printf("the number %ld is stored in physical address %lx\n", *physicalAddress, (unsigned long int)physicalAddress);
+    return;
+    //pte_t *physicalAddress = translate(NULL, va);
+    //memcpy((void *)val, physicalAddress, size);
     //printf("the number %ld is in val", *val);
 
 }
@@ -485,6 +510,16 @@ void *get_next_avail_p(){
         }
     }
     // no pages left in physical memory
-    return NULL;
+    exit(1);
+    fprintf(stderr,"No pages left in physical memory\n");
+    return (void *)-1;
+}
+
+int min(int a, int b) {
+  if (a < b) {
+    return a;
+  } else {
+    return b;
+  }
 }
 

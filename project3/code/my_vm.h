@@ -58,5 +58,6 @@ static int get_bit_at_index(char *bitmap, int index);
 static void free_bit_at_index(char *bitmap, int index);
 void *get_next_avail(int num_pages);
 void *get_next_avail_p();
+int min(int a, int b);
 
 #endif
