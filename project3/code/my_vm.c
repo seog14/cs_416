@@ -11,6 +11,7 @@ int offsetBits;
 int totalBits;
 int PTEBits;
 int PDEBits;
+int TLBIndexBits; 
 int totalVirtualPages = (MAX_MEMSIZE / PGSIZE);
 int totalPhysicalPages = (MEMSIZE / PGSIZE);
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -29,9 +30,6 @@ void set_physical_mem() {
     memset(physicalMemory, 0, MEMSIZE);
     page_directory = (pde_t ***)physicalMemory;
     
-    
-    printf("Address of physicalMemory = %p\n", physicalMemory);
-    printf("Address of page_directory = %p\n", page_directory);
     /*
     printf("Address of page_directory first frame = %p\n", (void *)&page_directory[0][0]);
     printf("Address of page_directory first entry = %p\n", (void *)&page_directory[0]);
@@ -50,6 +48,7 @@ void set_physical_mem() {
     totalBits = log(MAX_MEMSIZE)/log(2);
     PTEBits = log(PGSIZE/sizeof(pte_t))/log(2);
     PDEBits = totalBits - offsetBits - PTEBits;
+    TLBIndexBits = log(TLB_ENTRIES)/log(2);
 
     //Find pages needed for directory and allocate them in physical memory
     //In case multiple pages needed for the directory
@@ -76,8 +75,8 @@ void set_physical_mem() {
     }
     TLBMiss = 0;
     TLBTotal = 0;
+    set_bit_at_index(virtualPageTracker, 0);
 }
-
 
 /*
  * Part 2: Add a virtual to physical page translation to the TLB.
@@ -88,33 +87,13 @@ add_TLB(void *va, void *pa)
 {
     TLBTotal ++;
     TLBMiss ++;
-    /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
-    //Eviction policy?? 
-    unsigned int VPN = ((unsigned int)va >> offsetBits);
-    int i;
-    int leastRecentIndex = 0;
-    unsigned int leastRecent = TLBTotal;
-    for (i = 0; i < TLB_ENTRIES; i++){
-        if (tlbStore[i].VPN == -1){
-            struct tlb newEntry;
-            newEntry.VPN = VPN;
-            newEntry.physicalAddress = pa;
-            newEntry.mostRecentTLBUse = TLBTotal;
-            tlbStore[i] = newEntry;
-            //return 0;
-        } else {
-            // eviction policy: LRU
-            if (tlbStore[i].mostRecentTLBUse < leastRecent){
-                leastRecentIndex = i;
-                leastRecent = tlbStore[i].mostRecentTLBUse;
-            }
-        }
-    }
-    tlbStore[leastRecentIndex].VPN = VPN;
-    tlbStore[leastRecentIndex].physicalAddress = pa;
-    tlbStore[leastRecentIndex].mostRecentTLBUse = TLBTotal;
-    //printf("oops not successul\n");
-    //return -1;
+    //(unsigned int)va >> (totalBits - TLBIndexBits);
+    unsigned int VPN = (unsigned int)va >> offsetBits;
+    unsigned int index = VPN & ((1 << TLBIndexBits) - 1);
+    tlbStore[index].VPN = VPN;
+    tlbStore[index].valid = 1;
+    tlbStore[index].physicalAddress = (pte_t*)pa;
+    return 0;
 }
 
 
@@ -127,36 +106,23 @@ pte_t *
 check_TLB(void *va) {
 
     /* Part 2: TLB lookup code here */
-    unsigned int VPN = ((unsigned int)va >> offsetBits);
-    int i;
-    TLBTotal ++;
-    for (i = 0; i < TLB_ENTRIES; i++){
-        if (tlbStore[i].VPN == VPN){
-            tlbStore[i].mostRecentTLBUse = TLBTotal;
-            //TLBHits ++;
-            return (pte_t*)tlbStore[i].physicalAddress;
-        }
+    
+    //(unsigned int)va >> (totalBits - TLBIndexBits);
+    unsigned int VPN = (unsigned int)va >> offsetBits;
+    unsigned int index = VPN & ((1 << TLBIndexBits) - 1);
+    if (tlbStore[index].valid == 1 && tlbStore[index].VPN == VPN){
+        TLBTotal ++;
+        return tlbStore[index].physicalAddress;
     }
-    // not going to count the miss here since we always add to tlb if we miss and we count miss in add
-    // along with counting miss in add when we add it for the first time in page map
-    return (pte_t*)-1;
 
    /*This function should return a pte_t pointer*/
 }
 
 void free_TLB(unsigned int VPN){
-    int i;
-    for (i = 0; i < TLB_ENTRIES; i++){
-        if (tlbStore[i].VPN == VPN){
-            //printf("here");
-            tlbStore[i].VPN = -1;
-            tlbStore[i].physicalAddress = (pte_t *)0;
-            tlbStore[i].mostRecentTLBUse = 0;
-            return;
-        }
-    }
+    unsigned int index = VPN & ((1 << TLBIndexBits) - 1);
+    //VPN >> (totalBits - offsetBits - TLBIndexBits);
+    tlbStore[index].valid = 0;
 }
-
 
 /*
  * Part 2: Print TLB miss rate.
@@ -302,7 +268,6 @@ void *t_malloc(unsigned int num_bytes) {
     if (physicalMemory == NULL){
         set_physical_mem();
     }
-    pthread_mutex_unlock(&mutex); 
 
    /* 
     * HINT: If the page directory is not initialized, then initialize the
@@ -311,12 +276,9 @@ void *t_malloc(unsigned int num_bytes) {
     * have to mark which physical pages are used.
     */
     int pagesNeeded = (num_bytes + PGSIZE - 1) / PGSIZE;
-    pthread_mutex_lock(&mutex); 
     int VPN = (int)get_next_avail(pagesNeeded);
-    pthread_mutex_unlock(&mutex); 
     //printf("Next available page number = %d\n", VPN);
     int i;
-    pthread_mutex_lock(&mutex);
     for (i = 0; i < pagesNeeded; i++){
         unsigned int physicalAddress = (unsigned int)get_next_avail_p();
         //printf("physical address %x\n", physicalAddress);
@@ -338,12 +300,13 @@ void t_free(void *va, int size) {
      *
      * Part 2: Also, remove the translation from the TLB
      */
+    pthread_mutex_lock(&mutex);
+
     int pagesNeeded = (size + PGSIZE - 1) / PGSIZE; 
     int i; 
     int vpn = (unsigned int) va >> offsetBits; 
     int offset = (unsigned int)va & ((1 << offsetBits) - 1);
     for (i = 0; i < pagesNeeded; i++){
-        pthread_mutex_lock(&mutex);
         int actualVirtualAddress = ((unsigned int)(vpn + i) * PGSIZE) + offset; 
         pte_t *physicalAddress = translate(NULL, (void*) actualVirtualAddress);
         pte_t *physicalFrame = physicalAddress - offset;
@@ -361,8 +324,9 @@ void t_free(void *va, int size) {
         free_bit_at_index(physicalPageTracker, physicalPage);
         memset(physicalAddress, 0, PGSIZE);
         free_TLB(virtualPage);
-        pthread_mutex_unlock(&mutex);
     }
+    pthread_mutex_unlock(&mutex);
+
     // pte_t *physicalAddress = translate(NULL, va);
     // memset(physicalAddress, 0, size);
     // int PDEIndex = (unsigned int)va >> (offsetBits + PTEBits);

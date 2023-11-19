@@ -10,7 +10,7 @@
 
 //Add any important includes here which you may need
 
-#define PGSIZE 4096
+#define PGSIZE 1024
 
 // Maximum size of virtual memory
 #define MAX_MEMSIZE 4ULL*1024*1024*1024
@@ -35,6 +35,7 @@ struct tlb {
    unsigned int VPN;
    pte_t* physicalAddress;
    int mostRecentTLBUse;
+   int valid; 
 };
 //struct tlb tlbStore;
 
