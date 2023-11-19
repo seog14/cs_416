@@ -34,7 +34,7 @@ struct tlb {
     */
    unsigned int VPN;
    pte_t* physicalAddress;
-   int mostRecentTLBUse;
+   int valid;
 };
 //struct tlb tlbStore;
 
