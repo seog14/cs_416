@@ -42,7 +42,7 @@ struct inode {
 struct dirent {
 	uint16_t ino;					/* inode number of the directory entry */
 	uint16_t valid;					/* validity of the directory entry */
-	char name[208];					/* name of the directory entry */
+	char name[250];					/* name of the directory entry */
 	uint16_t len;					/* length of name */
 };
 
