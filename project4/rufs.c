@@ -128,31 +128,133 @@ int writei(uint16_t ino, struct inode *inode) {
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
 
+	int found = 0; 
   // Step 1: Call readi() to get the inode using ino (inode number of current directory)
-
+	struct inode * dir_inode = malloc(sizeof(struct inode)); 
+	readi(ino, dir_inode);
   // Step 2: Get data block of current directory from inode
-
   // Step 3: Read directory's data block and check each directory entry.
   //If the name matches, then copy directory entry to dirent structure
 
-	return 0;
+	int direct_ptr[16];
+	memcpy(direct_ptr, dir_inode->direct_ptr, sizeof(dir_inode->direct_ptr));
+	struct dirent * dirent_list = malloc(BLOCK_SIZE); 
+	int dirent_list_len = BLOCK_SIZE/(sizeof(struct dirent)); 
+
+	for(int i = 0; i < 16; i++){
+		int data_block = direct_ptr[i]; 
+		if(data_block != 0){
+			bio_read(data_block, dirent_list); 
+			for(int j = 0; j < dirent_list_len; j++){
+				struct dirent entry = dirent_list[j]; 
+				if(entry.valid == 1 && entry.len == name_len && strcmp(entry.name,fname) == 0){
+					found = 1; 
+					memcpy(dirent, &dirent_list[j], sizeof(struct dirent)) ;
+					break; 
+				}
+			}
+		}
+		if(found){
+			break;
+		}
+	}
+	if (found){
+		free(dir_inode);
+		free(dirent_list);
+		return 0; 
+	}
+	else{
+		free(dir_inode);
+		free(dirent_list);
+		return ENOENT;
+	}
+	
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
 
+	int found = 0; 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
-	
-	// Step 2: Check if fname (directory name) is already used in other entries
-
+	int direct_ptr[16];
+	memcpy(direct_ptr, dir_inode.direct_ptr, sizeof(dir_inode.direct_ptr));	// Step 2: Check if fname (directory name) is already used in other entries
+	struct dirent * dirent_list = malloc(BLOCK_SIZE);
+	int dirent_list_len = BLOCK_SIZE/sizeof(struct dirent); 
+	for (int i = 0; i < 16; i++){
+		int data_block = direct_ptr[i]; 
+		if(data_block != 0){
+			bio_read(data_block, dirent_list); 
+			for (int j = 0; j < dirent_list_len; j++){
+				struct dirent entry = dirent_list[j]; 
+				if(entry.valid == 1 && entry.len == name_len && strcmp(entry.name, fname) == 0){
+					found = 1; 
+					break; 
+				}
+			}
+		}
+		if(found){
+			break;
+		}
+	}
 	// Step 3: Add directory entry in dir_inode's data block and write to disk
-
+	if(found){
+		return EEXIST; 
+	}
+	int allocated = 0; 
+	int data_block; 
+	for (int i = 0; i < 16; i++){
+		data_block = direct_ptr[i]; 
+		if(data_block != 0){
+			bio_read(data_block, dirent_list); 
+			for (int j = 0; j < dirent_list_len; j++){
+				struct dirent entry = dirent_list[j]; 
+				if(entry.valid == 0){
+					dirent_list[j].valid = 1; 
+					dirent_list[j].ino = f_ino;
+					strcpy(dirent_list[j].name, fname);
+					dirent_list[j].len = name_len; 
+					allocated = 1; 
+					break;
+				}
+			}
+		}
+		if(allocated){
+			break; 
+		}
+	}
+	if(allocated){
+		bio_write(data_block, dirent_list); 
+		free(dirent_list);
+		return 0; 
+	}
 	// Allocate a new data block for this directory if it does not exist
+	else{
+		//Find a datablock that has a value of 0 (not initialiezed)
+		int new_data_block_ptr; 
+		for(int i = 0; i < 16; i++){
+			if(direct_ptr[i] == 0){
+				new_data_block_ptr = i; 
+				break; 
+			}
+		}
+		int new_data_block = get_avail_blkno(); 
+		dir_inode.direct_ptr[new_data_block_ptr] = new_data_block; 
+		// Update directory inode
+		writei(dir_inode.ino, &dir_inode); 
 
-	// Update directory inode
-
-	// Write directory entry
-
-	return 0;
+		//Initialize new_data_block 
+		struct dirent * data_block_dirents = malloc(BLOCK_SIZE); 
+		for(int i = 0; i < dirent_list_len; i++){
+			data_block_dirents[i].valid = 0; 
+		}
+		//Initialize directory entry 
+		data_block_dirents[0].ino = f_ino; 
+		data_block_dirents[0].valid = 1; 
+		strcpy(data_block_dirents[0].name, fname); 
+		data_block_dirents[0].len = name_len; 
+		bio_write(new_data_block, data_block_dirents); 
+		free(data_block_dirents);
+		return 0; 
+	}
 }
 
 int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
@@ -235,6 +337,10 @@ int rufs_mkfs() {
 	root_inode.vstat.st_mtime = time(NULL); 
 	root_inode.vstat.st_size = 0; 
 	root_inode.vstat.st_mode = S_IFDIR | 0755; 
+	// initialize direct ptrs to invalid block 
+	for (int i = 0; i < 16; i++){
+		root_inode.direct_ptr[i] = 0; 
+	}
 	inode_region[1] = root_inode; 
 	bio_write(super_block_data->i_start_blk, inode_region); 
 	
