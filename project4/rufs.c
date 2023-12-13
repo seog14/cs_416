@@ -34,7 +34,6 @@ int get_avail_ino() {
 	int avail_ino; 
 	// Step 1: Read inode bitmap from disk
 	int inode_bitmap_block = super_block->i_bitmap_blk; 
-	fprintf(stderr, "inodebitmap block: %d\n", inode_bitmap_block); 
 	void * inode_bitmap_data = malloc(BLOCK_SIZE);
 	bio_read(inode_bitmap_block, inode_bitmap_data);
 	bitmap_t inode_bitmap = malloc(MAX_INUM * sizeof(char)/8);
@@ -43,7 +42,6 @@ int get_avail_ino() {
 	for(int i = 1; i < MAX_INUM;i++){
 		if(get_bitmap(inode_bitmap, i) == 0){
 			set_bitmap(inode_bitmap, i); 
-			fprintf(stderr, "get_avail_ino: true or not: %d and what ino: %d\n", get_bitmap(inode_bitmap, i), i);
 			avail_ino = i; 
 			break; 
 		}
@@ -63,9 +61,7 @@ int get_avail_ino() {
 int get_avail_blkno() {
 	int avail_blkno; 
 	// Step 1: Read data block bitmap from disk
-	int data_bitmap_block = super_block->d_bitmap_blk; 
-	fprintf(stderr, "databitmap block: %d\n", data_bitmap_block); 
-
+	int data_bitmap_block = super_block->d_bitmap_blk;
 	void * data_bitmap_data = malloc(BLOCK_SIZE); 
 	bio_read(data_bitmap_block, data_bitmap_data);
 	bitmap_t data_bitmap = malloc(MAX_DNUM * sizeof(char)/8); 
@@ -167,7 +163,6 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
-	fprintf(stderr, "beginning dir_add\n");
 	int found = 0; 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
 	int direct_ptr[16];
@@ -204,7 +199,6 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 			bio_read(data_block, dirent_list); 
 			for (int j = 0; j < dirent_list_len; j++){
 				if(dirent_list[j].valid == 0){
-					fprintf(stderr, "dir_add. Adding dirent into datablock: %d and in index %d.\n", data_block, j); 
 					dirent_list[j].valid = 1; 
 					dirent_list[j].ino = f_ino;
 					strcpy(dirent_list[j].name, fname);
@@ -275,7 +269,6 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
  * namei operation
  */
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
-	fprintf(stderr, "entering get node by paht\n");
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	char * root_dir = "/"; 
 	char * path_name = malloc(strlen(path) + 1); 
@@ -289,7 +282,6 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	char* token = strtok(path_name, "/");
 	int curr_ino = ino; 
 	while(token != NULL && strlen(token) > 0){
-		fprintf(stderr, "node path token: %s\n", token);
 		if(dir_find(curr_ino, token, strlen(token), next_dirent) == 0){
 			curr_ino = next_dirent->ino; 
 		} 
@@ -303,6 +295,7 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	}
 	readi(curr_ino, inode); 
 	// Note: You could either implement it in a iterative way or recursive way
+	free(next_dirent);
 	free(path_name);
 	return 0;
 }
@@ -401,7 +394,6 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 	dir_add(*dir_inode, 1, curr_dir, strlen(curr_dir)); 
 	readi(1, dir_inode); 
 	dir_add(*dir_inode, 1, parent_dir, strlen(parent_dir)); 
-	fprintf(stderr, "done initializing\n");
 	return NULL;
 }
 
@@ -436,43 +428,36 @@ static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 	// Step 1: Call get_node_by_path() to get inode from path
 	struct inode * inode = malloc(sizeof(struct inode)); 
 	if (get_node_by_path(path, 1, inode) != 0){
+		free(inode);
 		return -1;
 	}
 	// Step 2: If not find, return -1
-
+	free(inode);
     return 0;
 }
 
 static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
-	fprintf(stderr, "Entering read\n");
-	fprintf(stderr, "readdir, pathname: %s\n", path);
-
 	// Step 1: Call get_node_by_path() to get inode from path
 	struct inode * inode = malloc(sizeof(struct inode)); 
 	if (get_node_by_path(path, 1, inode) != 0){
+		free(inode);
 		return ENOENT; 
 	}
-	fprintf(stderr, "readdir, inode: %d\n", inode->ino);
 
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
 	struct dirent * dirent_list = malloc(BLOCK_SIZE); 
 	int dirent_list_len = BLOCK_SIZE/(sizeof(struct dirent)); 
-	fprintf(stderr, "dirent_list_len: %d", dirent_list_len);
 	for(int i = 0; i < 16; i++){
 		int data_block = inode->direct_ptr[i]; 
 		if(data_block != -1){
-			fprintf(stderr, "Enteringdata block in readdir, datablock: %d\n", data_block);
 			bio_read(data_block, dirent_list); 
 			for(int j = 0; j < dirent_list_len; j++){
 				if(dirent_list[j].valid == 1){
-					fprintf(stderr, "valid name: %s, index: %d\n", dirent_list[j].name, j);
 					filler(buffer, dirent_list[j].name, NULL, 0); 
 				}
 			}
 		}
 	}
-	fprintf(stderr, "Ending read\n");
-
 	free(inode); 
 	free(dirent_list); 
 	return 0;
@@ -490,10 +475,16 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 	// Step 2: Call get_node_by_path() to get inode of parent directory
 	struct inode * dir_inode = malloc(sizeof(struct inode)); 
 	if (get_node_by_path(dirName, 1, dir_inode) != 0){
+		free(path_name_for_base);
+		free(path_name_for_dir);
+		free(dir_inode);
 		return ENOENT; 
 	}
 	struct dirent * dirent = malloc(sizeof(struct dirent)); 
 	if(dir_find(dir_inode->ino, baseName, strlen(baseName), dirent) == 0){
+		free(path_name_for_base);
+		free(path_name_for_dir);
+		free(dir_inode);
 		free(dirent);
 		return -ENOENT; 
 	}
@@ -502,6 +493,9 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 	int new_inode_num = get_avail_ino(); 
 	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
 	if(dir_add(*dir_inode, new_inode_num, baseName, strlen(baseName)) != 0){
+		free(path_name_for_base);
+		free(path_name_for_dir);
+		free(dir_inode);
 		return ENOENT; 
 	}
 	// Step 5: Update inode for target directory
@@ -532,6 +526,9 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 	readi(new_inode_num, new_inode); 
 	dir_add(*new_inode, new_inode_num, parent_dir, strlen(parent_dir)); 
 	free(new_inode); 
+	free(path_name_for_base);
+	free(path_name_for_dir);
+	free(dir_inode);
 	return 0;
 }
 
@@ -559,8 +556,6 @@ static int rufs_releasedir(const char *path, struct fuse_file_info *fi) {
 }
 
 static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
-	fprintf(stderr, "create_begin\n");
-
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
 	char * path_name_for_base = malloc(strlen(path)+ 1); 
 	char* path_name_for_dir = malloc(strlen(path) + 1); 
@@ -572,29 +567,27 @@ static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	// Step 2: Call get_node_by_path() to get inode of parent directory
 	struct inode * dir_inode = malloc(sizeof(struct inode)); 
 	if (get_node_by_path(dirName, 1, dir_inode) != 0){
+		free(path_name_for_base);
+		free(path_name_for_dir);
 		return ENOENT; 
 	}
 	struct dirent * dirent = malloc(sizeof(struct dirent)); 
-	fprintf(stderr, "basename: %s\n", baseName);
-	fprintf(stderr, "dirname: %s\n", dirName);
 
 	if(dir_find(dir_inode->ino, baseName, strlen(baseName), dirent) == 0){
 		free(dirent);
+		free(path_name_for_base);
+		free(path_name_for_dir);
 		return -ENOENT; 
 	}
 	free(dirent); 
-	fprintf(stderr, "create after looking at parent\n");
 	// Step 3: Call get_avail_ino() to get an available inode number
 	int new_inode_num = get_avail_ino(); 
-	int new_new_inode_num = get_avail_ino(); 
-	fprintf(stderr, "create new_inode_num: %d\n", new_inode_num);
-	fprintf(stderr, "create new_new_inode_num: %d\n", new_new_inode_num); 
 	// Step 4: Call dir_add() to add directory entry of target file to parent directory
-	fprintf(stderr, "create: adding directory entry to dir_inode: %d\n", dir_inode->ino); 
 	if(dir_add(*dir_inode, new_inode_num, baseName, strlen(baseName)) != 0){
+		free(path_name_for_base);
+		free(path_name_for_dir);
 		return ENOENT; 
 	}
-	fprintf(stderr, "after adding directory entry\n"); 
 	// Step 5: Update inode for target file
 	struct inode* new_inode = malloc(sizeof(struct inode)); 
 	new_inode->ino = new_inode_num; 
@@ -614,6 +607,9 @@ static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 
 	// Step 6: Call writei() to write inode to disk
 	writei(new_inode_num, new_inode); 
+	free(path_name_for_base);
+	free(path_name_for_dir);
+	free(new_inode);
 	return 0;
 }
 
@@ -642,20 +638,22 @@ static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, 
 	starting_data_block = offset/(BLOCK_SIZE); 
 	int starting_byte_in_data_block = offset % (BLOCK_SIZE); 
 	int num_blocks_to_read = (int) ceil((double)size/(double) BLOCK_SIZE); 
-	char * data_blocks = malloc(num_block_to_read * (BLOCK_SIZE)); 
+	char * data_blocks = malloc(num_blocks_to_read * (BLOCK_SIZE)); 
 	char * temp = data_blocks; 
 	char * curr_block = malloc(BLOCK_SIZE); 
 	int curr_block_num = starting_data_block; 
-	for(int i = 0; i < num_block_to_read; i++){
-		bio_read(inode->direct_ptr[curr_block_num], curr_block)
-		memcpy(temp, curr_block, sizeof(curr_block)); 
+	for(int i = 0; i < num_blocks_to_read; i++){
+		bio_read(inode->direct_ptr[curr_block_num], curr_block);
+		memcpy(temp, curr_block, BLOCK_SIZE); 
 		temp += BLOCK_SIZE; 
 		curr_block_num++; 
 	}
 
 	// Step 3: copy the correct amount of data from offset to buffer
 	memcpy(buffer, data_blocks + starting_byte_in_data_block, size); 
-
+	free(data_blocks); 
+	free(curr_block); 
+	free(inode);
 	// Note: this function should return the amount of bytes you copied to buffer
 	return size; 
 }
@@ -671,37 +669,52 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 	starting_data_block = offset/(BLOCK_SIZE); 
 	int starting_byte_in_data_block = offset % (BLOCK_SIZE); 
 	int num_blocks_to_read = (int) ceil((double)size/(double) BLOCK_SIZE); 
-	char * data_blocks = malloc(num_block_to_read * (BLOCK_SIZE)); 
-	char * temp = data_blocks; 
+	if (starting_byte_in_data_block != 0){
+		num_blocks_to_read++; 
+	}
 	char * curr_block = malloc(BLOCK_SIZE); 
 	int curr_block_num = starting_data_block; 
-	for(int i = 0; i < num_block_to_read; i++){
-		bio_read(inode->direct_ptr[curr_block_num], curr_block)
-		memcpy(temp, curr_block, sizeof(curr_block)); 
-		temp += BLOCK_SIZE; 
-		curr_block_num++; 
-	}
-	
-	int starting_data_block; 
-	staring_data_block = offset/(BLOCK_SIZE); 
-	int starting_byte_in_data_block = offset % (BLOCK_SIZE); 
-	int num_blocks_to_write = (int) ceil((double)size/(double) BLOCK_SIZE); 
-	int curr_block_num = starting_data_block; 
+	// Step 3: Write the correct amount of data from offset to disk
+	int num_blocks_to_write = num_blocks_to_read; 
+	curr_block_num = starting_data_block; 
 	int num_bytes_to_write = size; 
-	int curr_offset = offset; 
+	int curr_offset = offset % 4096; 
+	int bytes_to_write_in_curr_block;
+	char * buffer_copy = malloc(strlen(buffer) + 1);  
+	strcpy(buffer_copy, buffer);
+	char * temp = buffer_copy; 
 	for(int i = 0; i < num_blocks_to_write; i++){
 		if(inode->direct_ptr[curr_block_num] == -1){
 			int new_data_block = get_avail_blkno(); 
 			inode->direct_ptr[curr_block_num] = new_data_block; 
-			int 
 		}
+		bio_read(inode->direct_ptr[curr_block_num], curr_block); 
+		char * curr_block_with_offset = curr_block + curr_offset; 
+		if(num_bytes_to_write >= BLOCK_SIZE){
+			bytes_to_write_in_curr_block = BLOCK_SIZE - curr_offset; 
+			curr_offset = 0; 
+			num_bytes_to_write -= bytes_to_write_in_curr_block;
+		}
+		else{
+			bytes_to_write_in_curr_block = fmin(BLOCK_SIZE - curr_offset, num_bytes_to_write); 
+			curr_offset = 0; 
+			num_bytes_to_write -= bytes_to_write_in_curr_block;
+		}
+		memcpy(curr_block_with_offset, temp, bytes_to_write_in_curr_block); 
+		bio_write(inode->direct_ptr[curr_block_num], curr_block); 
+		
+		curr_block_num++; 
 	}
-
-
-	// Step 3: Write the correct amount of data from offset to disk
-
 	// Step 4: Update the inode info and write it to disk
-
+	inode->size += size; 
+	inode->vstat.st_size += size; 
+	inode->vstat.st_mtime = time(NULL); 
+	writei(inode->ino, inode); 
+	readi(inode->ino, inode); 
+	free(buffer_copy);
+	free(inode);
+	free(curr_block);
+	
 	// Note: this function should return the amount of bytes you write to disk
 	return size;
 }

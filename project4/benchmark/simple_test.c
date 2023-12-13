@@ -9,7 +9,7 @@
 #include <dirent.h>
 
 /* You need to change this macro to your TFS mount point*/
-#define TESTDIR "/tmp/gks43/mountdir2"
+#define TESTDIR "/tmp/gks43/mountdir"
 
 #define N_FILES 100
 #define BLOCKSIZE 4096
@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
 	
 	fstat(fd, &st);
 	if (st.st_size != ITERS*BLOCKSIZE) {
-		printf("TEST 2: File write failure \n");
+		printf("TEST 2: File write failure\n");
 		exit(1);
 	}
 	printf("TEST 2: File write Success \n");
